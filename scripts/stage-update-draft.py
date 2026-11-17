@@ -78,7 +78,13 @@ for asset in assets:
             raise SystemExit("Existing draft asset differs; no asset was overwritten")
         continue
     subprocess.run(["gh","release","upload",tag,str(asset)],check=True)
-release=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases/tags/{tag}"]))
+# GitHub's release-by-tag endpoint can return 404 for a draft without a tag ref.
+# Resolve the authenticated draft by immutable release ID instead.
+pages=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases","--paginate","--slurp"]))
+updated=next((item for page in pages for item in page if item["tag_name"]==tag),None)
+if updated is None:
+    raise SystemExit("Prepared release draft is missing")
+release=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases/{updated['id']}"]))
 if not release["draft"] or release["prerelease"]:
     raise SystemExit("Release must remain an unpublished stable draft")
 remote={asset["name"]:asset for asset in release["assets"]}
