@@ -1,0 +1,72 @@
+name: Verify built update artifacts
+on:
+  push:
+    branches: [codex/verify-built-update]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: LocalCut-AI-Windows-x64
+          path: candidate
+          run-id: 44018941776
+          github-token: ${{ github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - name: Verify build provenance, update manifest and installer hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import os, json, hashlib, base64, urllib.request
+          from pathlib import Path
+          import yaml
+          repository=os.environ["GITHUB_REPOSITORY"]
+          run_id=44018941776
+          expected_sha="a54a570a4ff87eed22bda0be54274e86bdede7a5"
+          request=urllib.request.Request(f"https://api.github.com/repos/{repository}/actions/runs/{run_id}",
+              headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json"})
+          with urllib.request.urlopen(request) as response:
+              run=json.load(response)
+          assert run["conclusion"]=="success" and run["head_sha"]==expected_sha
+          assert run["path"]==".github/workflows/windows.yml" and run["head_repository"]["full_name"]==repository
+          release=Path("candidate/release")
+          installer=release/"LocalCut-AI-0.2.0-x64-Setup.exe"
+          update=release/"latest.yml"
+          assert installer.is_file() and update.is_file()
+          manifest=yaml.safe_load(update.read_text(encoding="utf-8"))
+          assert manifest["version"]=="0.2.0",manifest
+          record=next(item for item in manifest["files"] if item["url"]==installer.name)
+          sha256=hashlib.sha256()
+          sha512=hashlib.sha512()
+          with installer.open("rb") as source:
+              assert source.read(2)==b"MZ"
+              source.seek(0)
+              for chunk in iter(lambda:source.read(1024*1024),b""):
+                  sha256.update(chunk);sha512.update(chunk)
+          encoded=base64.b64encode(sha512.digest()).decode()
+          assert record["sha512"]==encoded
+          assert record["size"]==installer.stat().st_size
+          assert manifest["path"]==installer.name and manifest["sha512"]==encoded
+          assert installer.with_suffix(".exe.blockmap").is_file()
+          report={"passed":True,"repository":repository,"buildRunId":run_id,"sourceCommit":expected_sha,
+                  "version":manifest["version"],"installer":installer.name,"size":installer.stat().st_size,
+                  "sha256":sha256.hexdigest(),"sha512":encoded,"blockmapPresent":True,
+                  "scope":"Build provenance and packaged update metadata; live online update not yet tested"}
+          Path("verification").mkdir()
+          Path("verification/release-check.json").write_text(json.dumps(report,indent=2)+"\n")
+          Path("verification/latest.yml").write_bytes(update.read_bytes())
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-update-metadata
+          path: verification/
