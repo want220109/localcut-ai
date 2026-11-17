@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+from pathlib import Path
 
 repo=os.environ["GITHUB_REPOSITORY"]
 run_id=os.environ["TRANSFER_RUN"]
@@ -29,6 +30,17 @@ for release in releases:
         continue
     if any(item["file"] not in names or names[item["file"]].get("digest")!="sha256:"+item["sha256"] or names[item["file"]]["size"]!=item["bytes"] for item in manifest["files"]):
         raise SystemExit("Permanent source assets incomplete: retaining transfer artifact")
+    installer=evidence["installer"]
+    if release["target_commitish"]!=evidence["build"] or names.get(installer["installer"],{}).get("digest")!="sha256:"+installer["sha256"] or names[installer["installer"]]["size"]!=installer["bytes"]:
+        raise SystemExit("Permanent installer provenance mismatch: retaining source transfer")
+    # Draft-owner instructions must not appear in end users' update notes later.
+    # Updating notes here is private only; the publication flag is never changed.
+    instruction="관리자 검토용 미공개 초안입니다. 관리자가 파일과 검증 결과를 확인하고 Publish release를 눌러야 앱에 공개됩니다."
+    if release["draft"] and instruction in (release.get("body") or ""):
+        body=release["body"].replace(instruction,"").strip()+"\n"
+        patch=Path("cleanup-check/private-notes.json")
+        patch.write_text(json.dumps({"body":body},ensure_ascii=False),encoding="utf-8")
+        subprocess.run(["gh","api","--method","PATCH",f"repos/{repo}/releases/{release['id']}","--input",str(patch)],check=True,stdout=subprocess.DEVNULL)
     validated=True
     reused=str(manifest.get("materialsArtifactRun",""))
     if reused and reused!=run_id:
@@ -43,3 +55,4 @@ if not validated:
 for artifact in transfers:
     subprocess.run(["gh","api","--method","DELETE",f"repos/{repo}/actions/artifacts/{artifact['id']}"],check=True)
     print("Removed completed temporary transfer",artifact["id"])
+print(json.dumps({"verified":True,"releaseId":release["id"],"tag":release["tag_name"],"draft":release["draft"],"assetCount":len(names),"build":evidence["build"],"installerSha256":installer["sha256"],"sourceAssetsVerified":True,"removedTemporaryArtifacts":[item["id"] for item in transfers],"publicGitHubUpgradeTested":False}))

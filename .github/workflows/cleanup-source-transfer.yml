@@ -1,19 +1,30 @@
-name: Remove completed temporary source transfer
+name: Finalize verified update draft
 on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful update preparation run to finalize
+        required: true
+  push:
+    branches: [codex/finalize-update-draft]
   workflow_run:
     workflows: [Verify and prepare update draft]
     types: [completed]
 permissions:
-  contents: read
+  # GitHub exposes unpublished draft assets only to tokens with contents: write.
+  # The script can edit notes only while draft=true; it never publishes releases.
+  contents: write
   actions: write
 jobs:
   cleanup:
-    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Remove only this run's temporary source artifact after checking the permanent draft
+        with:
+          ref: main
+      - name: Verify the draft, finalize private notes and remove completed source transfers
         env:
           GH_TOKEN: ${{ github.token }}
-          TRANSFER_RUN: ${{ github.event.workflow_run.id }}
+          TRANSFER_RUN: ${{ github.event.workflow_run.id || inputs.run_id || '44045476164' }}
         run: python scripts/cleanup-source-transfer.py
