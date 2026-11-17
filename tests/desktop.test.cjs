@@ -39,3 +39,50 @@ test('unconfigured updates stay disabled and beta is opt-in',async()=>{
  await assert.rejects(()=>controller.action('check','nightly'));
  await controller.action('check','beta');assert.equal(updater.allowPrerelease,true);
 });
+test('real GitHub provider empty feed is informational and can be checked again',async()=>{
+ const {GitHubProvider}=require('electron-updater/out/providers/GitHubProvider');
+ const updater=new FakeUpdater();
+ const provider=new GitHubProvider({owner:'example',repo:'localcut'},updater,{platform:'win32',executor:{
+  async request(options){
+   assert.equal(options.hostname,'github.com');
+   assert.equal(options.path,'/example/localcut/releases.atom');
+   return '<feed xmlns="http://www.w3.org/2005/Atom"><title>Releases</title></feed>';
+  }
+ }});
+ updater.checkForUpdates=async()=>{
+  updater.emit('checking-for-update');
+  try{return await provider.getLatestVersion();}
+  catch(err){updater.emit('error',err);throw err;}
+ };
+ const controller=new UpdateController(updater,{owner:'example',repo:'localcut'},()=>{},()=>false);
+ controller.set({version:'0.3.0',notes:'old notes',percent:70});
+ const state=await controller.action('check','stable');
+ assert.equal(state.status,'unpublished');
+ assert.match(state.message,/공개된 업데이트 버전이 없습니다/);
+ assert.equal(state.version,undefined);assert.equal(state.notes,undefined);assert.equal(state.percent,undefined);
+ await assert.rejects(()=>controller.action('download'),/먼저 새 버전/);
+ assert.equal(updater.installed,undefined);assert.equal(updater.autoDownload,false);
+ updater.checkForUpdates=FakeUpdater.prototype.checkForUpdates.bind(updater);
+ assert.equal((await controller.action('check')).status,'available');
+});
+test('coded empty-release rejection works without an updater error event',async()=>{
+ const updater=new FakeUpdater();
+ updater.checkForUpdates=async()=>{throw Object.assign(new Error('No release tag'),{code:'ERR_UPDATER_NO_PUBLISHED_VERSIONS'});};
+ const controller=new UpdateController(updater,{owner:'example',repo:'localcut'},()=>{},()=>false);
+ assert.equal((await controller.action('check','beta')).status,'unpublished');
+ assert.equal(controller.state.channel,'beta');
+});
+test('network, missing assets and unrelated updater errors remain errors',async()=>{
+ for(const err of [Object.assign(new Error('Connection reset'),{code:'ECONNRESET'}),
+  Object.assign(new Error('latest.yml missing'),{code:'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND'}),
+  Object.assign(new Error('No XML release link'),{code:'ERR_XML_MISSED_ELEMENT'}),
+  Object.assign(new Error('No published versions on GitHub'),{code:'EACCES'}),
+  new Error('HTTP 404 while reading release metadata')]){
+  const updater=new FakeUpdater();
+  updater.checkForUpdates=async()=>{updater.emit('error',err);throw err;};
+  const controller=new UpdateController(updater,{owner:'example',repo:'localcut'},()=>{},()=>false);
+  await assert.rejects(()=>controller.action('check'),e=>e===err);
+  assert.equal(controller.state.status,'error');
+  assert.equal(updater.installed,undefined);
+ }
+});

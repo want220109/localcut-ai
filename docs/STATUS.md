@@ -4,6 +4,14 @@
 
 ## 2026-11-17 추가 진행
 
+### 0.2.1: 공개 릴리스가 없는 업데이트 주소의 안내
+
+사용자 설치본에서 업데이트 확인 시 `No published versions on GitHub`가 표시됐습니다. GitHub Releases API의 실제 응답이 빈 목록임을 재확인했습니다. 0.2.0 설치본은 Actions artifact에 있으며 공개 Release가 아니므로 앱의 GitHub 공급자가 업데이트 버전을 찾지 못하는 것이 원인입니다. 사용자 PC의 네트워크·저장 공간 문제로 확인된 것이 아닙니다.
+
+실제 electron-updater 6.8.11 GitHubProvider에 빈 Atom 피드를 넣어 `ERR_XML_MISSED_ELEMENT`와 해당 오류 문구가 발생하는 것을 재현했습니다(HTTP 응답은 테스트 대역). 이 정확한 경우와 `ERR_UPDATER_NO_PUBLISHED_VERSIONS`를 `unpublished` 안내 상태로 처리하고, 일반 작업 실패 배너로 전파하지 않도록 수정했습니다. 네트워크·권한·누락된 업데이트 파일·다른 XML 오류는 계속 오류로 표시합니다. 빈 목록 이후 다시 확인·다운로드 제한도 검증했습니다.
+
+0.2.1 로컬 검증은 Node **6개 통과**, Python **52개 통과**, TypeScript/Vite 빌드와 Linux/Xvfb 실제 Electron 편집·출력·완전 재실행이 통과했습니다. Windows 수정본 빌드·설치는 아직 진행 전이며, 공개 릴리스 게시와 인터넷 업데이트 다운로드·설치는 여전히 미실행입니다. 이 코드 수정 자체가 현재 설치된 0.2.0을 바꾸거나 배포 파일을 생성하지는 않습니다.
+
 ### 업데이트 배포 저장소 연결 준비
 
 최종 대상은 사용자가 현재 연결 계정으로 새로 만든 공개 저장소 `want220109/localcut-ai`입니다. GitHub API에서 `admin=true`, `push=true`를 확인했습니다. 로컬 origin과 앱 업데이트 주소를 해당 저장소로 설정하고 Windows workflow가 main push에서도 실행되도록 준비했습니다. 이전 대상 `want109/localcut-ai-updates`에는 쓰기 권한이 없었으므로 사용하지 않습니다.
