@@ -15,9 +15,6 @@ if run["conclusion"]!="success" or run["path"]!=".github/workflows/prepare-updat
     raise SystemExit("Only completed, trusted transfer runs may be cleaned")
 artifacts=api(f"actions/runs/{run_id}/artifacts")["artifacts"]
 transfers=[artifact for artifact in artifacts if artifact["name"]=="release-source-companions"]
-if not transfers:
-    print("No temporary source transfer remains")
-    raise SystemExit(0)
 releases=api("releases?per_page=100")
 validated=False
 for release in releases:
@@ -33,6 +30,13 @@ for release in releases:
     if any(item["file"] not in names or names[item["file"]].get("digest")!="sha256:"+item["sha256"] or names[item["file"]]["size"]!=item["bytes"] for item in manifest["files"]):
         raise SystemExit("Permanent source assets incomplete: retaining transfer artifact")
     validated=True
+    reused=str(manifest.get("materialsArtifactRun",""))
+    if reused and reused!=run_id:
+        if not re.fullmatch(r"\d+",reused):raise SystemExit("Invalid reused transfer run")
+        old=api(f"actions/runs/{reused}")
+        if old["path"]!=".github/workflows/prepare-update.yml" or old["head_repository"]["full_name"]!=repo:
+            raise SystemExit("Untrusted reused source transfer")
+        transfers.extend(artifact for artifact in api(f"actions/runs/{reused}/artifacts")["artifacts"] if artifact["name"]=="release-source-companions")
     break
 if not validated:
     raise SystemExit("No verified permanent source copy found; no artifact was removed")

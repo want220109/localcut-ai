@@ -85,6 +85,9 @@ jobs:
           if-no-files-found: warn
   sources:
     needs: candidate
+    # Reuse the already checksum-verified native source transfer for 0.2.3.
+    # The staging script compares its runtime notices against the new build.
+    if: needs.candidate.outputs.version != '0.2.3'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -114,6 +117,7 @@ jobs:
           if-no-files-found: error
   draft:
     needs: [candidate, upgrade, sources]
+    if: always() && needs.candidate.result == 'success' && needs.upgrade.result == 'success' && (needs.sources.result == 'success' || needs.sources.result == 'skipped')
     concurrency:
       group: draft-release-${{ needs.candidate.outputs.version }}
       cancel-in-progress: false
@@ -139,6 +143,8 @@ jobs:
         with:
           name: release-source-companions
           path: source-companions
+          run-id: ${{ needs.candidate.outputs.version == '0.2.3' && '44043122329' || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: installed-upgrade-results
@@ -150,3 +156,4 @@ jobs:
           LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
           LOCALCUT_CANDIDATE_RUN: ${{ needs.candidate.outputs.run }}
           LOCALCUT_CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}
+          LOCALCUT_SOURCE_TRANSFER_RUN: ${{ needs.candidate.outputs.version == '0.2.3' && '44043122329' || github.run_id }}

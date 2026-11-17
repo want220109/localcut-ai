@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import zipfile
 from pathlib import Path
 
 repo=os.environ["GITHUB_REPOSITORY"]
@@ -21,7 +22,18 @@ if not upgrade.get("passed") or upgrade.get("build")!=sha or upgrade.get("to")!=
 sources=Path("source-companions")
 manifest=json.loads((sources/"SOURCE-MANIFEST.json").read_text(encoding="utf-8"))
 if manifest["sourceBuild"]!=sha:
-    raise SystemExit("Source companions do not match the binary build")
+    # Source companions contain native third-party sources, no LocalCut binaries.
+    # A rebuild may reuse them only when all actual installed notices and versions
+    # are byte-identical. Preserve both collection and candidate provenance.
+    with zipfile.ZipFile(sources/"runtime-notices.zip") as archive:
+        original=json.loads(archive.read("manifest.json"))
+    current=json.loads(Path("candidate/vendor/notices/manifest.json").read_text(encoding="utf-8"))
+    if original!=current:
+        raise SystemExit("Native source materials do not match this runtime")
+    manifest["materialsCollectedFor"]=manifest["sourceBuild"]
+    manifest["materialsArtifactRun"]=os.environ["LOCALCUT_SOURCE_TRANSFER_RUN"]
+    manifest["sourceBuild"]=sha
+    (sources/"SOURCE-MANIFEST.json").write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
 for item in manifest["files"]:
     file=sources/item["file"]
     if file.parent!=sources or not file.is_file() or file.stat().st_size!=item["bytes"]:
