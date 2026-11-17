@@ -1,0 +1,5 @@
+
+[1] pass-fixture
+
+[2] fail-fixture
+PASS: UTF-8 Korean manifest, existing installer resume, syntax, native exit codes, missing executable and failure report

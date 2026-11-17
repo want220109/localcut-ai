@@ -1,0 +1,6 @@
+Electron health passed
+Local media playback passed
+UI edit and render passed; closing app
+Reopening application
+Reopened window ready
+PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence

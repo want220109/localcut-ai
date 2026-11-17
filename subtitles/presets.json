@@ -1,0 +1,22 @@
+{
+  "fonts": {
+    "malgun": {"label": "맑은 고딕 · Windows 기본", "family": "Malgun Gothic", "css": "Malgun Gothic", "file": null},
+    "nanum": {"label": "나눔고딕 · 깔끔한 고딕", "family": "NanumGothic", "css": "LocalCut Nanum", "file": "NanumGothic-Regular.ttf", "boldFile": "NanumGothic-Bold.ttf"},
+    "blackhan": {"label": "Black Han Sans · 두꺼운 제목체", "family": "Black Han Sans", "css": "LocalCut Black Han", "file": "BlackHanSans-Regular.ttf"}
+  },
+  "defaults": {
+    "subtitlePreset": "legacy", "fontFamily": "malgun", "fontBold": true,
+    "captionScale": "height", "captionMarginVertical": 7.5,
+    "captionMarginLeft": null, "captionMarginRight": null,
+    "captionShadow": 0, "captionWrap": false, "captionMaxChars": 0,
+    "highlightWords": "", "highlightColor": "#D6FF62"
+  },
+  "presets": [
+    {"id":"youtube_clean","label":"유튜브 롱폼 · 깔끔한 기본","aspect":"16:9","description":"브이로그·인터뷰에 맞춘 흰색 고딕과 검은 테두리","settings":{"fontFamily":"nanum","fontBold":true,"fontSize":48,"color":"#FFFFFF","outline":2,"background":false,"position":"bottom","captionScale":"short-edge","captionMarginVertical":7.5,"captionMarginLeft":5,"captionMarginRight":5,"captionShadow":1,"captionWrap":true,"captionMaxChars":32}},
+    {"id":"youtube_box","label":"유튜브 롱폼 · 반투명 박스","aspect":"16:9","description":"밝거나 복잡한 배경에서도 읽기 쉬운 박스 자막","settings":{"fontFamily":"nanum","fontBold":true,"fontSize":46,"color":"#FFFFFF","outline":3,"background":true,"position":"bottom","captionScale":"short-edge","captionMarginVertical":8,"captionMarginLeft":5,"captionMarginRight":5,"captionShadow":0,"captionWrap":true,"captionMaxChars":32}},
+    {"id":"shorts_pop","label":"유튜브 쇼츠 · 또렷한 강조","aspect":"9:16","description":"큰 고딕과 두꺼운 테두리, 하단·오른쪽 조작 영역 여백","settings":{"fontFamily":"nanum","fontBold":true,"fontSize":76,"color":"#FFFFFF","outline":4,"background":false,"position":"bottom","captionScale":"short-edge","captionMarginVertical":23,"captionMarginLeft":7,"captionMarginRight":17,"captionShadow":2,"captionWrap":true,"captionMaxChars":18}},
+    {"id":"shorts_title","label":"유튜브 쇼츠 · 옐로 타이틀","aspect":"9:16","description":"강한 제목체와 노란색 포인트로 짧은 문장 강조","settings":{"fontFamily":"blackhan","fontBold":false,"fontSize":82,"color":"#FFE45E","outline":4,"background":false,"position":"bottom","captionScale":"short-edge","captionMarginVertical":24,"captionMarginLeft":7,"captionMarginRight":17,"captionShadow":2,"captionWrap":true,"captionMaxChars":16}},
+    {"id":"reels_minimal","label":"인스타 릴스 · 미니멀","aspect":"9:16","description":"부담 없는 크기의 흰색 고딕과 넉넉한 하단 여백","settings":{"fontFamily":"nanum","fontBold":true,"fontSize":64,"color":"#FFFFFF","outline":2,"background":false,"position":"bottom","captionScale":"short-edge","captionMarginVertical":25,"captionMarginLeft":8,"captionMarginRight":18,"captionShadow":1,"captionWrap":true,"captionMaxChars":20}},
+    {"id":"reels_bold","label":"인스타 릴스 · 볼드 포인트","aspect":"9:16","description":"두꺼운 제목체와 어두운 박스로 모바일 가독성 강화","settings":{"fontFamily":"blackhan","fontBold":false,"fontSize":74,"color":"#FFFFFF","outline":3,"background":true,"position":"bottom","captionScale":"short-edge","captionMarginVertical":25,"captionMarginLeft":8,"captionMarginRight":18,"captionShadow":0,"captionWrap":true,"captionMaxChars":18}}
+  ]
+}

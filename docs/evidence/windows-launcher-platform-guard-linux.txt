@@ -1,0 +1,2 @@
+
+STOPPED: This launcher requires Windows 10/11 x64. Linux test results do not establish Windows compatibility.

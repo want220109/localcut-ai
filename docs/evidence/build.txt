@@ -1,0 +1,19 @@
+
+> localcut-ai@0.1.0 build
+> tsc --noEmit && vite build && node scripts/build-desktop.mjs
+
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 15 modules transformed.
+rendering chunks...
+computing gzip size...
+build/renderer/index.html                   0.66 kB │ gzip:  0.44 kB
+build/renderer/assets/index-QqL26en3.css   23.54 kB │ gzip:  6.06 kB
+build/renderer/assets/index-DQL-BnG4.js   215.70 kB │ gzip: 67.70 kB
+
+✓ built in 293ms
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+npm notice To update run: npm install -g npm@12.2.2
+npm notice

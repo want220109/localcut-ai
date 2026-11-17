@@ -1,0 +1,82 @@
+{
+  "name": "localcut-ai",
+  "version": "0.2.0",
+  "private": true,
+  "description": "로컬 우선 AI 자동 영상 편집기",
+  "author": "LocalCut contributors",
+  "license": "MIT",
+  "main": "build/electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build && node scripts/build-desktop.mjs",
+    "desktop": "npm run build && electron .",
+    "test:desktop": "node --test tests/*.test.cjs",
+    "test": "npm run test:desktop && npm run build",
+    "pack:win": "npm run build && electron-builder --config electron-builder.cjs --win nsis --x64 --publish never",
+    "test:e2e": "node scripts/electron-smoke.cjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11",
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "22.18.6",
+    "@types/react": "19.1.16",
+    "@types/react-dom": "19.1.9",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.3.3",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.2",
+    "vite": "8.3.8"
+  },
+  "build": {
+    "appId": "kr.localcut.editor",
+    "productName": "LocalCut AI",
+    "artifactName": "LocalCut-AI-${version}-${arch}-Setup.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "build/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-engine/localcut-engine",
+        "to": "engine"
+      },
+      {
+        "from": "vendor/media",
+        "to": "media"
+      },
+      {
+        "from": "docs/THIRD_PARTY.md",
+        "to": "THIRD_PARTY.md"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "ko_KR",
+        "en_US"
+      ]
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

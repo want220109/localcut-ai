@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "restartPassed": true,
+  "health": {
+    "version": "0.1.0",
+    "ffmpeg": "/usr/bin/ffmpeg",
+    "ffprobe": "/usr/bin/ffprobe",
+    "models": [
+      {
+        "id": "small",
+        "repo": "Systran/faster-whisper-small",
+        "revision": "536b0662742c02347bc0e980a01041f333bce120",
+        "label": "한국어 권장 · small",
+        "sizeMB": 490,
+        "license": "MIT",
+        "ready": false
+      },
+      {
+        "id": "tiny",
+        "repo": "Systran/faster-whisper-tiny",
+        "revision": "d90ca5fe260221311c53c58e660288d3deb8d356e",
+        "label": "속도 우선 · tiny",
+        "sizeMB": 76,
+        "license": "MIT",
+        "ready": false
+      }
+    ],
+    "cpuNote": "GPU 가속은 CUDA 환경이 준비된 경우 자동 사용합니다. CPU에서도 실행되지만 긴 영상은 영상 길이보다 오래 걸릴 수 있습니다."
+  },
+  "media": {
+    "duration": 6,
+    "width": 640
+  },
+  "projectId": "95efe47ee5584aea96eb41745795be87",
+  "output": {
+    "path": "/workspace/auto-video-editor/test-results/electron/appdata-1794821818228/workspace/jobs/95efe47ee5584aea96eb41745795be87/render-c6dca6dd29c6/edited.mp4",
+    "srt": "/workspace/auto-video-editor/test-results/electron/appdata-1794821818228/workspace/jobs/95efe47ee5584aea96eb41745795be87/render-c6dca6dd29c6/captions.srt",
+    "report": "/workspace/auto-video-editor/test-results/electron/appdata-1794821818228/workspace/jobs/95efe47ee5584aea96eb41745795be87/render-c6dca6dd29c6/report.json",
+    "duration": 4,
+    "revision": 2
+  },
+  "rendererErrors": []
+}

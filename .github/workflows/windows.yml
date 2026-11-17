@@ -1,0 +1,81 @@
+name: Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['docs/**', 'README.md', 'LICENSE', 'AGENTS.md']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Parse and check Windows local test launcher
+        shell: powershell
+        run: |
+          ./scripts/validate-windows-launcher.ps1
+          ./scripts/windows-local-test.ps1 -CheckOnly -NoLaunch
+      - run: pip install -r requirements-dev.txt -c constraints.txt
+      - run: npm ci
+      - run: node node_modules/electron/install.js
+      - name: Fetch and verify pinned FFmpeg
+        run: python scripts/prepare-media.py
+      - name: Set media directory
+        shell: pwsh
+        run: '"LOCALCUT_MEDIA_DIR=$((Resolve-Path vendor/media).Path)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+      - run: python -m pytest -q --junitxml=test-results/python-windows.xml
+      - run: npm run test:desktop
+      - run: node scripts/configure-release.mjs
+      - run: npm run build
+      - name: Test real Electron UI and local engine
+        run: node scripts/electron-smoke.cjs
+        env:
+          LOCALCUT_PYTHON: python
+      - run: python scripts/build-engine.py
+      - run: python scripts/frozen-smoke.py
+      - name: Build NSIS installer without publishing
+        run: npx electron-builder --config electron-builder.cjs --win nsis --x64 --publish never
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+          LOCALCUT_PUBLISHER_NAME: ${{ vars.WINDOWS_PUBLISHER_NAME }}
+      - name: Check installer contents and silent install
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release/*Setup.exe | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer missing' }
+          $process = Start-Process $installer.FullName -ArgumentList '/S' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs/LocalCut AI/LocalCut AI.exe'
+          if (-not (Test-Path $installed)) { throw 'Installed application missing' }
+          $runtime = Join-Path (Split-Path $installed) 'resources/engine/localcut-engine.exe'
+          if (-not (Test-Path $runtime)) { throw 'Bundled Python runtime missing' }
+          $media = Join-Path (Split-Path $installed) 'resources/media/ffmpeg.exe'
+          if (-not (Test-Path $media)) { throw 'Bundled FFmpeg missing' }
+          "LOCALCUT_PACKAGED_EXE=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Test installed application with bundled Python and FFmpeg
+        run: node scripts/electron-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalCut-AI-Windows-x64
+          path: |
+            release/*Setup.exe
+            release/*.blockmap
+            release/*.yml
+            docs/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-test-results
+          path: test-results/

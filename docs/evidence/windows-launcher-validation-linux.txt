@@ -1,0 +1,5 @@
+
+[1] pass-fixture
+
+[2] fail-fixture
+PASS: launcher syntax, native exit codes, missing executable and failure report

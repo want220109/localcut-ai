@@ -1,0 +1,11 @@
+✔ IPC path and navigation policy (1.342929ms)
+✔ updates require explicit download and idle install; no silent shutdown (1.582384ms)
+✔ unconfigured updates stay disabled and beta is opt-in (0.317729ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 163.812663

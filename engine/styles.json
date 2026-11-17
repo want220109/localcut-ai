@@ -1,0 +1,5 @@
+{
+  "basic": {"label": "기본 편집", "silence_min": 1.4, "padding": 0.25, "min_cut": 0.6, "min_keep": 1.2, "max_removed": 0.35, "zoom": 1.0, "shorts_seconds": 0},
+  "fast": {"label": "빠른 편집", "silence_min": 0.8, "padding": 0.18, "min_cut": 0.35, "min_keep": 0.8, "max_removed": 0.45, "zoom": 1.08, "shorts_seconds": 0},
+  "shorts": {"label": "쇼츠·릴스", "silence_min": 0.9, "padding": 0.2, "min_cut": 0.4, "min_keep": 1.0, "max_removed": 0.45, "zoom": 1.05, "shorts_seconds": 60}
+}

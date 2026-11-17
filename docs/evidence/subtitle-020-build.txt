@@ -1,0 +1,17 @@
+
+> localcut-ai@0.2.0 build
+> tsc --noEmit && vite build && node scripts/build-desktop.mjs
+
+vite v8.3.8 building client environment for production...
+transforming...
+✓ 18 modules transformed.
+rendering chunks...
+computing gzip size...
+build/renderer/index.html                                    0.66 kB │ gzip:  0.44 kB
+build/renderer/assets/BlackHanSans-Regular-B0-nbKIc.ttf    998.42 kB
+build/renderer/assets/NanumGothic-Regular-xHXjSUfO.ttf   2,054.74 kB
+build/renderer/assets/NanumGothic-Bold-DvrrFc7E.ttf      2,073.86 kB
+build/renderer/assets/index-Dm0D8nKG.css                    25.19 kB │ gzip:  6.49 kB
+build/renderer/assets/index-OToeYnwU.js                    223.79 kB │ gzip: 69.96 kB
+
+✓ built in 395ms

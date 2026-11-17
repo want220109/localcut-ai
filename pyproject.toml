@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: real FFmpeg encode/decode", "asr: requires a downloaded speech model"]

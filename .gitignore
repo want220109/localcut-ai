@@ -1,0 +1,17 @@
+.venv/
+.venv-win/
+windows-results/
+model-repair-results/
+node_modules/
+build/
+dist-engine/
+release/
+vendor/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.spec
+test-results/
+artifacts/
+*.log
+.env*
