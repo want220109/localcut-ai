@@ -1,3 +1,4 @@
 *.cmd text eol=crlf
 assets/fonts/* -text
+assets/licenses/* -text
 assets/fonts/LICENSE-*.txt -whitespace

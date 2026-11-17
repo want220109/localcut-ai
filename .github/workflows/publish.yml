@@ -19,7 +19,23 @@ permissions:
   contents: read
   actions: read
 jobs:
+  approval-protection:
+    if: inputs.approval == 'PUBLISH'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require real production reviewers before entering the environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/environments/production" > production-protection.json
+          python - <<'PY'
+          import json
+          protection=json.load(open('production-protection.json'))
+          if not any(rule.get('type')=='required_reviewers' and rule.get('reviewers') for rule in protection.get('protection_rules',[])):
+              raise SystemExit('Production required reviewers must be configured by an administrator. Nothing was published.')
+          PY
   publish:
+    needs: approval-protection
     if: inputs.approval == 'PUBLISH'
     runs-on: ubuntu-latest
     environment: production
@@ -43,14 +59,28 @@ jobs:
           path: publish-artifact
           run-id: ${{ inputs.run_id }}
           github-token: ${{ github.token }}
-      - name: Publish immutable version assets
+      - name: Publish only the fully prepared draft
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
           CHANNEL: ${{ inputs.channel }}
+          RUN_ID: ${{ inputs.run_id }}
         run: |
-          if [ "$CHANNEL" = beta ]; then
-            gh release create "$TAG" publish-artifact/release/* --verify-tag --prerelease --title "$TAG" --notes-file CHANGELOG.md
-          else
-            gh release create "$TAG" publish-artifact/release/* --verify-tag --title "$TAG" --notes-file CHANGELOG.md
-          fi
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > draft.json
+          python - <<'PY'
+          import json,os
+          draft=json.load(open('draft.json'))
+          names={asset['name'] for asset in draft['assets']}
+          required={'latest.yml','SOURCE-MANIFEST.json','SOURCES-README.txt','runtime-notices.zip','update-verification.json'}
+          if not draft['draft'] or draft['prerelease'] or os.environ['CHANNEL']!='stable' or not required.issubset(names):
+              raise SystemExit('Only an unpublished, verified stable draft with source companions may be published')
+          PY
+          gh release download "$TAG" --pattern update-verification.json --dir draft-evidence
+          python - <<'PY'
+          import json,os,subprocess
+          evidence=json.load(open('draft-evidence/update-verification.json'))
+          sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          if evidence['build']!=sha or str(evidence['run'])!=os.environ['RUN_ID'] or not evidence['upgrade']['passed']:
+              raise SystemExit('Draft verification does not match the approved build')
+          PY
+          gh release edit "$TAG" --draft=false --latest

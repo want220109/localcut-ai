@@ -62,6 +62,12 @@ jobs:
           if (-not (Test-Path $runtime)) { throw 'Bundled Python runtime missing' }
           $media = Join-Path (Split-Path $installed) 'resources/media/ffmpeg.exe'
           if (-not (Test-Path $media)) { throw 'Bundled FFmpeg missing' }
+          $noticeRoot = Join-Path (Split-Path $installed) 'resources/notices'
+          $noticeManifest = Get-Content (Join-Path $noticeRoot 'manifest.json') -Raw -Encoding utf8 | ConvertFrom-Json
+          foreach ($entry in $noticeManifest.files.PSObject.Properties) {
+            $noticeFile = Join-Path $noticeRoot $entry.Name
+            if (-not (Test-Path $noticeFile) -or (Get-FileHash $noticeFile -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Bundled notice missing or changed: $($entry.Name)" }
+          }
           "LOCALCUT_PACKAGED_EXE=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Test installed application with bundled Python and FFmpeg
         run: node scripts/electron-smoke.cjs
@@ -73,6 +79,7 @@ jobs:
             release/*.blockmap
             release/*.yml
             docs/
+            vendor/notices/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()

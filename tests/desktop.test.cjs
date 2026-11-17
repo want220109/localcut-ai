@@ -19,7 +19,7 @@ class FakeUpdater extends EventEmitter {
  setFeedURL(feed){this.feed=feed;}
  async checkForUpdates(){this.emit('checking-for-update');this.emit('update-available',{version:'0.2.0',releaseNotes:'<script>not HTML</script>'});}
  async downloadUpdate(){this.emit('update-downloaded',{version:'0.2.0'});}
- quitAndInstall(){this.installed=true;}
+ quitAndInstall(...options){this.installed=true;this.installOptions=options;}
 }
 test('updates require explicit download and idle install; no silent shutdown',async()=>{
  const updater=new FakeUpdater();let busy=true;
@@ -30,7 +30,7 @@ test('updates require explicit download and idle install; no silent shutdown',as
  assert.equal(controller.state.notes,'<script>not HTML</script>');
  await controller.action('download');assert.equal(controller.state.status,'downloaded');
  await assert.rejects(()=>controller.action('install'),/처리 중/);assert.equal(updater.installed,undefined);
- busy=false;await controller.action('install');assert.equal(updater.installed,true);
+ busy=false;await controller.action('install');assert.equal(updater.installed,true);assert.deepEqual(updater.installOptions,[true,true]);
 });
 test('unconfigured updates stay disabled and beta is opt-in',async()=>{
  const empty=new UpdateController(new FakeUpdater(),{},()=>{},()=>false);

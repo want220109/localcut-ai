@@ -53,7 +53,7 @@ class UpdateController {
     } else if(action==='install') {
       if(this.busy()) throw new Error('영상 처리 중에는 업데이트를 설치할 수 없습니다. 작업이 끝난 뒤 다시 시도해 주세요.');
       if(this.state.status!=='downloaded') throw new Error('업데이트 다운로드를 먼저 완료해 주세요.');
-      this.updater.quitAndInstall(false,true);
+      this.updater.quitAndInstall(true,true);
     } else throw new Error('지원하지 않는 업데이트 명령입니다.');
     return this.state;
   }
