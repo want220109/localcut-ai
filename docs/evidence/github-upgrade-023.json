@@ -1,0 +1,78 @@
+{
+  "version": "0.2.3",
+  "candidateSource": "110f85b1ba68948ab2fa6776f1d7e24efd3d8384",
+  "windowsBuild": {
+    "runId": 44044653091,
+    "url": "https://github.com/want220109/localcut-ai/actions/runs/44044653091",
+    "passed": true,
+    "pythonTests": 61,
+    "nodeTests": 6,
+    "installerArtifactId": 14310678919,
+    "installerArtifactSha256": "3ac04f69b485bc92202e6a0baddc885c9388551f7ddadb1e3d94554630517c1c"
+  },
+  "localFinalTests": {
+    "python": 63,
+    "node": 6,
+    "realElectronLinuxPassed": true,
+    "frozenEngineLinuxPassed": true
+  },
+  "upgrade": {
+    "runId": 44045476164,
+    "url": "https://github.com/want220109/localcut-ai/actions/runs/44045476164",
+    "artifactId": 14311217176,
+    "artifactSha256": "eab8e8f5f71807286fdc14c8456d539c7b0a63aeb0ef51cdad898e19352f2ef3",
+    "passed": true,
+    "from": "0.2.0",
+    "to": "0.2.3",
+    "transport": "loopback HTTP candidate feed; public GitHub not yet published",
+    "realWindowsInstaller": true,
+    "corruptPayloadRejected": true,
+    "automaticRestartObserved": true,
+    "userDataPreserved": true,
+    "sourcePreserved": true,
+    "modelFolderSentinelPreserved": true,
+    "realModelWeightsTested": false,
+    "captionCutsSettingsPreserved": true,
+    "renderedDuration": 5,
+    "downloadRequests": 2,
+    "build": "110f85b1ba68948ab2fa6776f1d7e24efd3d8384",
+    "harness": "110f85b1ba68948ab2fa6776f1d7e24efd3d8384"
+  },
+  "release": {
+    "id": 448333679,
+    "tag": "untagged-0524b4116d0e94dc11fd",
+    "draft": true,
+    "published": false,
+    "url": "https://github.com/want220109/localcut-ai/releases/tag/untagged-0524b4116d0e94dc11fd",
+    "assetCount": 18,
+    "installerSha256": "3ecd6c88394cc72ff1ff4a48569b0e7a7a1acc5c93add3532f6b7598e40e67dc",
+    "allAssetsSizeAndSha256Verified": true,
+    "verificationJobId": 134159020870,
+    "expectedTag": "v0.2.3",
+    "ownerMustSetSemanticTagBeforePublishing": true,
+    "tagEditBlockedHttpStatus": 403,
+    "draftPreparationRunPassed": true,
+    "privateNotesFinalized": true,
+    "sourceTransferArtifactRemoved": 14310845919,
+    "finalizationRun": 44118363163,
+    "finalTagCheckRun": 44119080421,
+    "finalTagCheckPassed": false,
+    "ownerTargetBranch": "release/v0.2.3"
+  },
+  "sources": {
+    "ffmpegCommit": "f1acb0a2666c78d92688f4c3d2803a132f5590f6",
+    "buildScriptsCommit": "c9fe5114060e507409f7ee07edfd82efaf25d767",
+    "upstreamCacheRun": 43712307594,
+    "upstreamCacheArtifact": 14160712668,
+    "upstreamCacheZipSha256": "8ce88272603786d738be990a92e60dcfa9816bd774a81ac7edf61293e0f1c23c",
+    "fullFfmpegHistoryIncluded": true,
+    "dependencySourceParts": 3,
+    "runtimeNoticesIncluded": true
+  },
+  "scope": {
+    "userPcTested": false,
+    "livePublicGitHubUpgradeTested": false,
+    "realKoreanAsrTested": false,
+    "cudaTested": false
+  }
+}

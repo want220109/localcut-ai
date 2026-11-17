@@ -10,6 +10,14 @@
 
 관리자는 초안의 설치본·latest.yml·blockmap·검증 JSON·대응 소스 및 고지를 검토한 후 GitHub의 **Publish release**로 게시할 수 있습니다. 자동 게시 workflow를 사용할 때는 별도로 `production` required reviewers가 있어야 하며, 보호가 없으면 중단됩니다. 초안 작성은 유료 API·모델 다운로드·개인 영상 업로드를 사용하지 않습니다.
 
+### 0.2.3 최초 게시 시 소유자가 확인할 값
+
+[준비된 초안](https://github.com/want220109/localcut-ai/releases/tag/untagged-0524b4116d0e94dc11fd)에 검증된 파일 18개가 있습니다. 현재 GitHub가 draft의 tag를 임시 `untagged-*`로 두었고, 연결된 Actions token의 태그 수정은 403으로 거부됐습니다. 소유자는 **Edit → Choose a tag → `v0.2.3`**을 지정하고 원래 빌드 commit `110f85b1ba68948ab2fa6776f1d7e24efd3d8384`를 target으로 유지한 다음 **Publish release**를 누릅니다. 버전 비교를 위해 반드시 `v0.2.3`을 사용하며 임시 tag로 게시하지 않습니다. 설치 파일을 PC에서 실행하는 과정은 아닙니다.
+
+화면에서 commit 선택이 불편하면 **Target: `release/v0.2.3`**을 선택합니다. 이 브랜치를 정확히 위 빌드 SHA에 만들어 두었으며, main의 이후 배포 도구·문서 변경과 구분합니다. 처음 게시할 값은 **Tag: `v0.2.3` / Target: `release/v0.2.3`**입니다.
+
+GitHub의 draft 조회는 공개 release-by-tag 대신 인증된 목록과 release ID를 사용합니다. 초안 notes를 API로 수정할 때는 tag·target·draft 상태를 명시하고 다시 확인합니다. `contents: write`는 draft 읽기에도 필요하지만 과거 workflow commit에 새 tag를 연결하는 수정 권한까지 보장하지는 않습니다. 이 권한은 소유자가 GitHub 화면에서 처리하며 사용자 PC에 PAT를 배포하지 않습니다.
+
 ## 최초 연결
 
 대상 저장소는 `want220109/localcut-ai`이며 공개 저장소입니다. 저장소 소유 계정과 현재 연결 계정이 일치하고 쓰기 권한을 확인했습니다. 앱 업데이트 주소도 같은 저장소를 사용합니다. Windows 빌드는 main push·버전 tag·수동 실행으로 시작하며, 빌드 자체는 릴리스를 게시하지 않습니다. 실제 빌드와 배포 상태는 STATUS를 참고하세요.
