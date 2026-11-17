@@ -13,6 +13,8 @@ Windows workflow는 requirements 설치 → 고정 URL/SHA-256 FFmpeg 준비 →
 
 모델 다운로드는 설치본 생성 중 수행하지 않습니다. 사용자가 동의한 첫 실행에서만 받습니다. 모델 다운로드·한국어 음성 정확도와 업데이트 E2E는 빌드 성공만으로 검증되었다고 판단하지 않습니다.
 
+0.2.1부터 `Verify installed update check` 워크플로에 성공한 Windows build run ID와 버전을 입력해 별도 Windows 환경에서 설치본의 실제 업데이트 확인 버튼을 검사할 수 있습니다. `scripts/verify-installed-updater.cjs`가 UI·IPC·실제 GitHub 응답과 오류 배너 여부를 확인하고 결과 JSON과 화면을 artifact로 남깁니다. 이 검사는 업데이트 다운로드나 설치를 실행하지 않습니다. 최초 0.2.1 검사는 [run 44024825288](https://github.com/want220109/localcut-ai/actions/runs/44024825288)에서 통과했습니다.
+
 ## 새 버전 배포
 
 1. 수정·테스트 후 `package.json`, `engine/__init__.py`, health 버전·테스트 기대값, CHANGELOG를 같은 버전으로 맞춥니다. 베타는 `0.2.0-beta.1` 같은 prerelease를 사용합니다. 향후 단일 버전 생성기로 통합하는 것을 권장합니다.

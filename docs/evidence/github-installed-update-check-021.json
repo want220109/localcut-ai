@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "version": "0.2.1",
+  "repository": "want220109/localcut-ai",
+  "buildSource": "1dc189e276083f2018b8c8074e11ded19ca53358",
+  "publicReleaseCount": 0,
+  "updateStatus": "unpublished",
+  "message": "아직 공개된 업데이트 버전이 없습니다. 현재 프로그램은 계속 사용할 수 있습니다.",
+  "observed": [
+    "checking",
+    "unpublished",
+    "unpublished"
+  ],
+  "scope": "Real Windows installed app, UI click, IPC and live GitHub release check; no update download or install",
+  "windowsBuildRunId": 44023918892,
+  "installedCheckRunId": 44024825288,
+  "windowsBuildTests": {
+    "python": 52,
+    "node": 6,
+    "frozenEngine": true,
+    "nsisInstall": true,
+    "installedEditRenderRestart": true
+  }
+}

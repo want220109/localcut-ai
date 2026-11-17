@@ -3,6 +3,7 @@
 windows-results/
 model-repair-results/
 node_modules/
+test-driver/
 build/
 dist-engine/
 release/

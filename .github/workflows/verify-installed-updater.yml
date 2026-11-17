@@ -1,0 +1,63 @@
+name: Verify installed update check
+on:
+  push:
+    branches: [codex/verify-empty-update]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful Windows installer run ID
+        default: '44023918892'
+        required: true
+      version:
+        description: Expected installed version
+        default: '0.2.1'
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  check:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    env:
+      CANDIDATE_RUN: ${{ inputs.run_id || '44023918892' }}
+      LOCALCUT_EXPECT_VERSION: ${{ inputs.version || '0.2.1' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify successful candidate build provenance
+        shell: pwsh
+        run: |
+          if ($env:CANDIDATE_RUN -notmatch '^\d+$') { throw 'Invalid run ID' }
+          if ($env:LOCALCUT_EXPECT_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid version' }
+          $candidate = gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:CANDIDATE_RUN" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read candidate run' }
+          if ($candidate.conclusion -ne 'success' -or $candidate.path -ne '.github/workflows/windows.yml' -or $candidate.head_repository.full_name -ne $env:GITHUB_REPOSITORY) { throw 'Candidate must be a successful Windows build from this repository' }
+          "LOCALCUT_EXPECT_BUILD_SHA=$($candidate.head_sha)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/download-artifact@v4
+        with:
+          name: LocalCut-AI-Windows-x64
+          path: candidate
+          run-id: ${{ env.CANDIDATE_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --prefix test-driver --ignore-scripts --no-audit --no-fund playwright@1.65.1
+      - name: Install candidate for isolated update check
+        shell: pwsh
+        run: |
+          $installer = Join-Path $PWD "candidate/release/LocalCut-AI-$($env:LOCALCUT_EXPECT_VERSION)-x64-Setup.exe"
+          if (-not (Test-Path $installer)) { throw 'Installer missing' }
+          $process = Start-Process $installer -ArgumentList '/S' -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs/LocalCut AI/LocalCut AI.exe'
+          if (-not (Test-Path $installed)) { throw 'Installed app missing' }
+          "LOCALCUT_TEST_INSTALLED_EXE=$installed" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Click update check in the installed app against live GitHub
+        run: node scripts/verify-installed-updater.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-updater-check
+          path: test-results/installed-updater/
