@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -36,6 +37,42 @@ def download(url,target,expected=None):
         raise ValueError("Source download checksum mismatch")
 
 
+def restore_dependency_cache(target):
+    """Reuse our permanent, verified release copy after upstream artifacts expire."""
+    repo=os.environ["GITHUB_REPOSITORY"]
+    releases=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases?per_page=100"]))
+    for release in releases:
+        assets={asset["name"]:asset for asset in release["assets"]}
+        if "SOURCE-MANIFEST.json" not in assets:
+            continue
+        with tempfile.TemporaryDirectory() as temporary:
+            directory=Path(temporary)
+            subprocess.run(["gh","release","download",release["tag_name"],"--pattern","SOURCE-MANIFEST.json","--dir",str(directory)],check=True)
+            manifest=json.loads((directory/"SOURCE-MANIFEST.json").read_text(encoding="utf-8"))
+            if manifest.get("ffmpegBuildCommit")!=BUILD_SHA or manifest.get("ffmpegCommit")!=FFMPEG_SHA:
+                continue
+            indexed={item["file"]:item for item in manifest["files"]}
+            names=manifest.get("cacheParts",[])
+            if not names or any(name not in assets or name not in indexed or Path(name).name!=name or indexed[name].get("origin",{}).get("zipSha256")!=CACHE_SHA for name in names):
+                continue
+            with Path(target).open("wb") as output:
+                for name in names:
+                    item=indexed[name]
+                    if assets[name].get("digest")!="sha256:"+item["sha256"]:
+                        raise ValueError("Stored source asset digest mismatch")
+                    subprocess.run(["gh","release","download",release["tag_name"],"--pattern",name,"--dir",str(directory)],check=True)
+                    part=directory/name
+                    if part.stat().st_size!=item["bytes"] or digest(part)!=item["sha256"]:
+                        raise ValueError("Stored source part integrity failure")
+                    with part.open("rb") as source:shutil.copyfileobj(source,output,1024*1024)
+                    part.unlink()
+            if digest(target)!=indexed[names[0]]["reassembledSha256"]:
+                raise ValueError("Stored dependency source archive integrity failure")
+            print("Reused permanent dependency sources from",release["tag_name"])
+            return True
+    return False
+
+
 def main():
     if os.environ.get("GITHUB_ACTIONS")!="true":
         raise SystemExit("Source preparation requires an isolated GitHub runner")
@@ -56,22 +93,23 @@ def main():
         filename.unlink()
         return names
     # Collect the actual source cache belonging to the exact upstream build run.
-    archive=output/"upstream-cache.zip"
-    with archive.open("wb") as destination:
-        result=subprocess.run(["gh","api",f"repos/FFmpeg-Builds/FFmpeg-Builds/actions/artifacts/{CACHE_ID}/zip"],stdout=destination,stderr=subprocess.PIPE)
-    if result.returncode:
-        # Public artifact mirror is accepted only for the exact official SHA-256.
-        download(f"https://nightly.link/FFmpeg-Builds/FFmpeg-Builds/actions/runs/{CACHE_RUN}/download-cache.zip",archive,CACHE_SHA)
-    if digest(archive)!=CACHE_SHA:
-        raise ValueError("Official upstream source-cache digest mismatch")
     cache=output/"ffmpeg-dependency-sources.tar.gz"
-    with zipfile.ZipFile(archive) as source:
-        entries=[item for item in source.infolist() if Path(item.filename).name=="cache.tar.gz" and not item.is_dir()]
-        if len(entries)!=1:
-            raise ValueError("Unexpected source cache archive")
-        with source.open(entries[0]) as stream,cache.open("wb") as target:
-            shutil.copyfileobj(stream,target,1024*1024)
-    archive.unlink()
+    if not restore_dependency_cache(cache):
+        archive=output/"upstream-cache.zip"
+        with archive.open("wb") as destination:
+            result=subprocess.run(["gh","api",f"repos/FFmpeg-Builds/FFmpeg-Builds/actions/artifacts/{CACHE_ID}/zip"],stdout=destination,stderr=subprocess.PIPE)
+        if result.returncode:
+            # Public artifact mirror is accepted only for the exact official SHA-256.
+            download(f"https://nightly.link/FFmpeg-Builds/FFmpeg-Builds/actions/runs/{CACHE_RUN}/download-cache.zip",archive,CACHE_SHA)
+        if digest(archive)!=CACHE_SHA:
+            raise ValueError("Official upstream source-cache digest mismatch")
+        with zipfile.ZipFile(archive) as source:
+            entries=[item for item in source.infolist() if Path(item.filename).name=="cache.tar.gz" and not item.is_dir()]
+            if len(entries)!=1:
+                raise ValueError("Unexpected source cache archive")
+            with source.open(entries[0]) as stream,cache.open("wb") as target:
+                shutil.copyfileobj(stream,target,1024*1024)
+        archive.unlink()
     # Listing only: no downloaded archive path is extracted into the workspace.
     with tarfile.open(cache,"r:gz") as source:
         names=source.getnames()

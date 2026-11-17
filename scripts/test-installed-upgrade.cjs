@@ -87,7 +87,8 @@ async function main(){
   await closed;app=null;
   const selected=`Get-Process | Where-Object { $_.Path -eq '${exe.replaceAll("'","''")}' }`;
   await until(async()=>{
-   const installed=JSON.parse(asar.extractFile(path.join(path.dirname(exe),'resources/app.asar'),'package.json').toString());
+   const archive=path.join(path.dirname(exe),'resources/app.asar');asar.uncache(archive);
+   const installed=JSON.parse(asar.extractFile(archive,'package.json').toString());
    return installed.version===version&&Number(ps(`@(${selected} | Where-Object { $_.MainWindowHandle -ne 0 }).Count`))>0;
   },'upgraded app automatic restart',180000);
   // The restarted app has no Playwright debugger. Close it through its own window,
