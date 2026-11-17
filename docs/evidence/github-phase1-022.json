@@ -1,0 +1,57 @@
+{
+  "repository": "want220109/localcut-ai",
+  "sourceCommit": "cf8e1d2ca40a6e027fb5a96eb170707f4640ad72",
+  "version": "0.2.2",
+  "windowsRunId": 44032082532,
+  "windowsConclusion": "success",
+  "python": {
+    "tests": 59,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "nodeTests": 6,
+  "frozenEngine": "passed",
+  "nsisInstall": "passed",
+  "applications": {
+    "electron": {
+      "passed": true,
+      "restartPassed": true,
+      "subtitlePresetsPassed": true,
+      "latestExportPassed": true,
+      "exportLockPassed": true,
+      "originalPreserved": true,
+      "version": "0.2.2",
+      "previousCutOutputSeconds": 4,
+      "latestOutputSeconds": 6,
+      "savedFileSeconds": 6.0,
+      "savedFileMatchesLatest": true
+    },
+    "installed-electron": {
+      "passed": true,
+      "restartPassed": true,
+      "subtitlePresetsPassed": true,
+      "latestExportPassed": true,
+      "exportLockPassed": true,
+      "originalPreserved": true,
+      "version": "0.2.2",
+      "previousCutOutputSeconds": 4,
+      "latestOutputSeconds": 6,
+      "savedFileSeconds": 6.0,
+      "savedFileMatchesLatest": true
+    }
+  },
+  "linuxRunId": 44032082587,
+  "linuxConclusion": "success",
+  "installerArtifact": {
+    "id": 14305109568,
+    "size": 369464028,
+    "sha256": "d2bee427dc0950878df80d327285c4dcd8dd51f5ebb6182a011f944ca63b73ff"
+  },
+  "notVerified": [
+    "actual Korean speech accuracy",
+    "original user videos",
+    "user PC upgrade",
+    "live online update download and install"
+  ]
+}
