@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.candidate.outputs.sha }}
+          ref: main
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -76,6 +76,7 @@ jobs:
         env:
           LOCALCUT_CANDIDATE_DIR: candidate
           LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
+          LOCALCUT_CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -89,7 +90,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.candidate.outputs.sha }}
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -112,6 +113,9 @@ jobs:
           if-no-files-found: error
   draft:
     needs: [candidate, upgrade, sources]
+    concurrency:
+      group: draft-release-${{ needs.candidate.outputs.version }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -119,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.candidate.outputs.sha }}
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

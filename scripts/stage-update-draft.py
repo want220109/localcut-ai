@@ -31,8 +31,9 @@ for item in manifest["files"]:
             raise SystemExit("Source companion integrity failure")
 pages=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases","--paginate","--slurp"]))
 existing=[release for page in pages for release in page]
-if any(release["tag_name"]==tag for release in existing):
-    raise SystemExit("A release already exists; existing release assets will not be overwritten")
+previous=next((release for release in existing if release["tag_name"]==tag),None)
+if previous and (not previous["draft"] or previous["target_commitish"]!=sha):
+    raise SystemExit("A different or published release already exists; it will not be modified")
 verification=Path("update-verification.json")
 verification.write_text(json.dumps({"installer":payload,"upgrade":upgrade,"build":sha,"run":run_id},indent=2)+"\n",encoding="utf-8")
 assets=list(Path("candidate/release").glob("*Setup.exe"))+list(Path("candidate/release").glob("*.blockmap"))+[Path("candidate/release/latest.yml"),verification]+list(sources.iterdir())
@@ -54,15 +55,25 @@ FFmpeg와 포함 네이티브 구성의 대응 소스·빌드 스크립트·패�
 관리자 검토용 미공개 초안입니다. 관리자가 파일과 검증 결과를 확인하고 Publish release를 눌러야 앱에 공개됩니다.
 """
 Path("draft-notes.md").write_text(notes,encoding="utf-8")
-subprocess.run(["gh","release","create",tag,"--draft","--target",sha,"--title",f"LocalCut AI {version}","--notes-file","draft-notes.md"],check=True)
+if previous is None:
+    subprocess.run(["gh","release","create",tag,"--draft","--target",sha,"--title",f"LocalCut AI {version}","--notes-file","draft-notes.md"],check=True)
+remote={asset["name"]:asset for asset in (previous or {}).get("assets",[])}
 for asset in assets:
+    if asset.name in remote:
+        with asset.open("rb") as stream:
+            expected="sha256:"+hashlib.file_digest(stream,"sha256").hexdigest()
+        if remote[asset.name].get("digest")!=expected or remote[asset.name]["size"]!=asset.stat().st_size:
+            raise SystemExit("Existing draft asset differs; no asset was overwritten")
+        continue
     subprocess.run(["gh","release","upload",tag,str(asset)],check=True)
 release=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases/tags/{tag}"]))
 if not release["draft"] or release["prerelease"]:
     raise SystemExit("Release must remain an unpublished stable draft")
 remote={asset["name"]:asset for asset in release["assets"]}
 for asset in assets:
-    if asset.name not in remote or remote[asset.name]["size"]!=asset.stat().st_size:
+    with asset.open("rb") as stream:
+        expected="sha256:"+hashlib.file_digest(stream,"sha256").hexdigest()
+    if asset.name not in remote or remote[asset.name]["size"]!=asset.stat().st_size or remote[asset.name].get("digest")!=expected:
         raise SystemExit("Draft asset upload incomplete")
 print("Prepared unpublished release draft:",release["html_url"])
 with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as output:

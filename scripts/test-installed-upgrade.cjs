@@ -25,7 +25,8 @@ async function main(){
  assert.equal(process.platform,'win32','Use an isolated Windows runner');
  assert.equal(process.env.GITHUB_ACTIONS,'true','Never run an installer-upgrade fixture on a personal PC');
  const exe=process.env.LOCALCUT_TEST_INSTALLED_EXE;
- const version=require('../package.json').version;
+ const version=process.env.LOCALCUT_CANDIDATE_VERSION||require('../package.json').version;
+ const live=process.env.LOCALCUT_LIVE_GITHUB==='1';
  const directory=path.resolve('test-results/installed-upgrade');await fs.mkdir(directory,{recursive:true});
  const feed=path.resolve(process.env.LOCALCUT_CANDIDATE_DIR,'release');
  let corrupt=true,served=0;
@@ -61,8 +62,9 @@ async function main(){
   await page.reload();
   await page.getByRole('button',{name:'모델 · 업데이트',exact:true}).click();
   await until(async()=>!['idle','checking'].includes((await page.evaluate(()=>window.localcut.call('updateStatus'))).status),'initial online check');
+  if(!live){
   await app.evaluate(({app},url)=>{
-   const {createRequire}=require('node:module');
+   const {createRequire}=process.mainModule.require('node:module');
    const updater=createRequire(app.getAppPath()+'/package.json')('electron-updater').autoUpdater;
    updater.setFeedURL({provider:'generic',url});updater.disableDifferentialDownload=true;
   },`http://127.0.0.1:${server.address().port}/`);
@@ -74,6 +76,7 @@ async function main(){
   assert.match(rejected.message,/sha512|checksum|digest/i,'Checksum failure must reject altered installer');
   assert.equal((await page.evaluate(()=>window.localcut.call('health'))).version,'0.2.0');
   corrupt=false;
+  }
   await page.getByRole('button',{name:'업데이트 확인',exact:true}).click();
   await page.getByRole('button',{name:'다운로드',exact:true}).click();
   await page.getByRole('button',{name:'설치하고 재시작',exact:true}).waitFor({timeout:180000});
@@ -101,7 +104,7 @@ async function main(){
   const rendered=await page.evaluate(id=>window.localcut.call('render',{id}),project.id);
   assert.ok(Math.abs(rendered.project.output.duration-5)<0.2,'Upgraded engine must render preserved cut');
   await page.screenshot({path:path.join(directory,'after-upgrade.png'),fullPage:true});
-  const report={passed:true,from:before.version,to:after.version,transport:'loopback HTTP candidate feed; public GitHub not yet published',realWindowsInstaller:true,corruptPayloadRejected:true,automaticRestartObserved:true,userDataPreserved:true,sourcePreserved:true,modelFolderSentinelPreserved:true,realModelWeightsTested:false,captionCutsSettingsPreserved:true,renderedDuration:rendered.project.output.duration,downloadRequests:served,build:process.env.LOCALCUT_CANDIDATE_SHA};
+  const report={passed:true,from:before.version,to:after.version,transport:live?'live public GitHub provider':'loopback HTTP candidate feed; public GitHub not yet published',realWindowsInstaller:true,corruptPayloadRejected:!live,automaticRestartObserved:true,userDataPreserved:true,sourcePreserved:true,modelFolderSentinelPreserved:true,realModelWeightsTested:false,captionCutsSettingsPreserved:true,renderedDuration:rendered.project.output.duration,downloadRequests:served,build:process.env.LOCALCUT_CANDIDATE_SHA,harness:process.env.GITHUB_SHA};
   await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
  }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));}
 }

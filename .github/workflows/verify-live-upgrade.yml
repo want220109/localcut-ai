@@ -1,0 +1,60 @@
+name: Verify published in-app upgrade
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  upgrade:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: LocalCut-AI-Windows-x64
+          path: previous
+          run-id: '44018941776'
+          github-token: ${{ github.token }}
+      - name: Verify published release and install previous client
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:TAG" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.draft -or $release.prerelease) { throw 'A published stable release is required' }
+          New-Item -ItemType Directory candidate/release -Force | Out-Null
+          gh release download $env:TAG --pattern update-verification.json --dir candidate
+          if ($LASTEXITCODE -ne 0) { throw 'Published build provenance missing' }
+          $verified = Get-Content candidate/update-verification.json -Raw -Encoding utf8 | ConvertFrom-Json
+          if ($env:TAG -ne "v$($verified.installer.version)" -or -not $verified.upgrade.passed) { throw 'Published build verification mismatch' }
+          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.0-x64-Setup.exe).Path
+          if ((Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a3f7bdb0c3ac06f501142c8b098dc53bbcc883e19fb20f8240e591ff9d1dcba8') { throw 'Previous installer mismatch' }
+          $process = Start-Process $old -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw 'Previous version installation failed' }
+          "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA\Programs\LocalCut AI\LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LOCALCUT_CANDIDATE_VERSION=$($verified.installer.version)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "LOCALCUT_CANDIDATE_SHA=$($verified.build)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Exercise original GitHub feed and actual upgrade buttons
+        run: node scripts/test-installed-upgrade.cjs
+        env:
+          LOCALCUT_CANDIDATE_DIR: candidate
+          LOCALCUT_LIVE_GITHUB: '1'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-installed-upgrade-results
+          path: test-results/installed-upgrade/
