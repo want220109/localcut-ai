@@ -1,0 +1,52 @@
+{
+  "repository": "want220109/localcut-ai",
+  "sourceCommit": "a54a570a4ff87eed22bda0be54274e86bdede7a5",
+  "windows": {
+    "runId": 44018941776,
+    "runner": "windows-2022",
+    "conclusion": "success",
+    "python": {
+      "tests": 52,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "nodeTests": 3,
+    "frozenRuntime": "passed",
+    "nsisBuild": "passed",
+    "silentInstall": "passed",
+    "applications": {
+      "electron/result.json": {
+        "passed": true,
+        "restartPassed": true,
+        "subtitlePresetsPassed": true,
+        "engineVersion": "0.2.0",
+        "rendererErrors": []
+      },
+      "installed-electron/result.json": {
+        "passed": true,
+        "restartPassed": true,
+        "subtitlePresetsPassed": true,
+        "engineVersion": "0.2.0",
+        "rendererErrors": []
+      }
+    },
+    "installerArtifact": {
+      "id": 14299694882,
+      "size": 369434813,
+      "sha256": "3e3a05c376d0e1e576022f326b3790d38c69818a7513bc62c4dd93a995f8af86"
+    }
+  },
+  "linux": {
+    "runId": 44018941762,
+    "conclusion": "success",
+    "pythonTests": 52,
+    "electron": "passed"
+  },
+  "notVerified": [
+    "real Korean speech inference",
+    "CUDA hardware execution",
+    "user PC upgrade from 0.1.0",
+    "live online update download and installation"
+  ]
+}

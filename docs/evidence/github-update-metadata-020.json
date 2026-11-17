@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "repository": "want220109/localcut-ai",
+  "buildRunId": 44018941776,
+  "sourceCommit": "a54a570a4ff87eed22bda0be54274e86bdede7a5",
+  "version": "0.2.0",
+  "installer": "LocalCut-AI-0.2.0-x64-Setup.exe",
+  "size": 367995251,
+  "sha256": "a3f7bdb0c3ac06f501142c8b098dc53bbcc883e19fb20f8240e591ff9d1dcba8",
+  "sha512": "Jd7KtonvLRNsKLCrjLFAqLvaCIFOiaY9SrzlueZ1mQ78SzCipgnp+0sOijs+tUWAAsYnxPpXINjXSig1CGW96Q==",
+  "blockmapPresent": true,
+  "scope": "Build provenance and packaged update metadata; live online update not yet tested"
+}

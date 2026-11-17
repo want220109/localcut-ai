@@ -2,7 +2,7 @@
 
 Windows 10/11 x64를 위한 **로컬 우선 데스크톱 편집기 v0.2.0**입니다. Electron/React 화면과 Python/FFmpeg 엔진을 실제 구현했습니다. Codex 구독, OpenAI 키 또는 유료 API를 사용하지 않습니다.
 
-**현재 배포 상태:** GitHub 공개 릴리스는 아직 없습니다. 사용자 Windows 로그에서 설치본 제작, 소스 앱·동결 엔진 테스트 통과와 앱 화면 실행을 확인했습니다. 실제 한국어 모델 다운로드 중 어휘 파일 이름 오류가 발견되어 [모델 복구 도구](docs/MODEL_DOWNLOAD_REPAIR.md)를 추가했습니다. 실제 발화 인식 정확도와 온라인 업데이트 검증은 남아 있습니다. 검증 기록은 [개발 결과](docs/STATUS.md)를 확인하세요.
+**현재 배포 상태:** [GitHub Windows 빌드·설치 테스트](https://github.com/want220109/localcut-ai/actions/runs/44018941776)가 통과했습니다. Python 52개·Node 3개 테스트, 동결 엔진, 실제 NSIS 설치, 설치된 앱의 편집·MP4 저장·재실행을 검증했습니다. [설치본 ZIP](https://github.com/want220109/localcut-ai/actions/runs/44018941776/artifacts/14299694882)을 받아 압축을 풀고 `release/LocalCut-AI-0.2.0-x64-Setup.exe`를 실행하세요. Actions 다운로드에는 GitHub 로그인이 필요합니다. GitHub 공개 릴리스는 아직 없으며 실제 발화 인식 정확도·사용자 PC 업그레이드·온라인 업데이트 검증은 남아 있습니다. 검증 기록은 [개발 결과](docs/STATUS.md)를 확인하세요.
 
 ## 사용자 기능
 
@@ -46,7 +46,7 @@ node scripts/electron-smoke.cjs
 .venv/bin/python scripts/frozen-smoke.py
 ```
 
-Windows에서는 `python scripts/prepare-media.py`, `python scripts/build-engine.py`, `npm run pack:win` 순으로 설치본을 만듭니다. Actions의 **Windows installer** 워크플로는 이 과정, Windows 엔진 테스트, 소스 앱과 설치된 앱의 Electron 테스트를 실행한 뒤 Artifacts에 결과를 저장합니다. `release/LocalCut-AI-0.2.0-x64-Setup.exe`가 예정 출력 경로입니다. **이 경로에 파일이 현재 존재한다는 뜻은 아닙니다.**
+Windows에서는 `python scripts/prepare-media.py`, `python scripts/build-engine.py`, `npm run pack:win` 순으로 설치본을 만듭니다. Actions의 **Windows installer** 워크플로는 이 과정, Windows 엔진 테스트, 소스 앱과 설치된 앱의 Electron 테스트를 실행한 뒤 Artifacts에 결과를 저장합니다. 위 성공한 Actions 산출물에 `release/LocalCut-AI-0.2.0-x64-Setup.exe`가 포함되어 있습니다.
 
 ## 문서
 

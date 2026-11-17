@@ -9,7 +9,7 @@
 3. 필요하면 `WINDOWS_CSC_LINK`, `WINDOWS_CSC_KEY_PASSWORD`를 Actions secrets에 넣고 `WINDOWS_PUBLISHER_NAME`을 변수로 설정합니다. 개인 토큰·관리자 암호는 프로그램에 포함하지 않습니다. 인증서가 없으면 시험용 설치본은 서명 없이 만들어집니다.
 4. `Windows installer` 워크플로를 수동 실행합니다. 성공한 뒤 `LocalCut-AI-Windows-x64` artifact를 받습니다. ZIP 안 `release/*Setup.exe`가 Windows 설치본입니다.
 
-Windows workflow는 requirements 설치 → 고정 URL/SHA-256 FFmpeg 준비 → Python/Node 테스트 → 업데이트 저장소 설정 → UI 빌드 → Electron 앱 실제 테스트 → Python 런타임 동결 → 동결 런타임 검증 → NSIS 생성 → `/S` 설치 → **설치된 앱의 bundled 엔진으로 실제 출력 테스트**를 실행합니다. 이 워크플로는 작성되어 있으나 현재 원격에서 실행되지 않았습니다.
+Windows workflow는 requirements 설치 → 고정 URL/SHA-256 FFmpeg 준비 → Python/Node 테스트 → 업데이트 저장소 설정 → UI 빌드 → Electron 앱 실제 테스트 → Python 런타임 동결 → 동결 런타임 검증 → NSIS 생성 → `/S` 설치 → **설치된 앱의 bundled 엔진으로 실제 출력 테스트**를 실행합니다. [0.2.0 원격 실행](https://github.com/want220109/localcut-ai/actions/runs/44018941776)에서 모든 단계가 성공했습니다. 설치본과 업데이트 manifest의 SHA-512·크기 및 빌드 출처도 별도로 검증했으며, 이 결과는 온라인 업그레이드 성공을 의미하지 않습니다.
 
 모델 다운로드는 설치본 생성 중 수행하지 않습니다. 사용자가 동의한 첫 실행에서만 받습니다. 모델 다운로드·한국어 음성 정확도와 업데이트 E2E는 빌드 성공만으로 검증되었다고 판단하지 않습니다.
 
