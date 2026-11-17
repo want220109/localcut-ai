@@ -15,7 +15,8 @@ export interface Project {
   cuts:Cut[];captions:Caption[];transcript:Segment[];scenes:number[];warnings:string[];settings:Settings;
   model:{name:string;device:string}|null;output:{path:string;duration:number;revision:number}|null;
 }
-export interface Audit {before:string;after:string;removed:{id:string;text:string;important:boolean}[];partial:{id:string;text:string;retained:number}[];importantRemoved:number;outputDuration:number}
+export interface CutSummary {sourceDuration:number;outputDuration:number;removedDuration:number;appliedCount:number;reviewCount:number;intervalCount:number;noCutReason:string;analysisNeedsRefresh:boolean}
+export interface Audit {before:string;after:string;removed:{id:string;text:string;important:boolean}[];partial:{id:string;text:string;retained:number}[];importantRemoved:number;outputDuration:number;cutSummary?:CutSummary}
 export interface Model {id:string;label:string;sizeMB:number;ready:boolean}
 export interface Health {version:string;models:Model[];cpuNote:string}
 export interface History {id:string;name:string;updatedAt:number;analyzed:boolean}

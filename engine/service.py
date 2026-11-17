@@ -69,11 +69,12 @@ def dispatch(request, progress=lambda percent,message:None):
             silences=silence_ranges(p["source"]["path"],p["source"]["duration"])
             transcript,vad,model=transcribe(p["source"],store.root,request.get("model","small"),directory,progress)
         progress(85,"문맥·반복·중요 표현을 비교해 편집점 선정 중")
-        cuts,warnings=plan(p["source"],transcript,silences,scenes,motion,vad,p["style"])
+        analysis_summary={}
+        cuts,warnings=plan(p["source"],transcript,silences,scenes,motion,vad,p["style"],analysis_summary)
         if model and model.get("fallback"):
             warnings.append(model["fallback"])
         p.update(transcript=transcript,captions=generate(transcript,p["style"],p["settings"]),cuts=cuts,scenes=scenes,motion=motion,
-                 warnings=warnings,model=model,analyzed=True,revision=p["revision"]+1)
+                 warnings=warnings,model=model,analyzed=True,analysisSummary=analysis_summary,revision=p["revision"]+1)
         p["settings"]["zoom"]=STYLES[p["style"]]["zoom"]
         if p["style"]=="shorts":
             p["settings"]["aspect"]="9:16"

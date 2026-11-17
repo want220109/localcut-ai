@@ -3,7 +3,7 @@ import copy
 import pytest
 
 from engine.planner import plan
-from engine.project import Store, keeps, transcript_audit, validate
+from engine.project import Store, keeps, transcript_audit, validate, cut_summary
 from subtitles.captions import ass, generate, remap, srt, stamp
 
 
@@ -111,3 +111,88 @@ def test_ass_does_not_interpret_user_formatting(tmp_path,source):
     data=ass([{"start":0,"end":1,"text":"{\\an8} 실제 대사"}],p["settings"],640,360)
     assert "{\\an8}" not in data and "실제 대사" in data
     assert "Malgun Gothic" in data
+
+
+def test_background_sound_gap_is_found_but_needs_review(source):
+    diagnostics={}
+    cuts,_=plan(source,[speech(.5,2.5),speech(7.5,10.5)],[],[],motion(),[[.5,2.5],[7.5,10.5]],"basic",diagnostics)
+    assert len(cuts)==1 and cuts[0]["kind"]=="speech_gap"
+    assert cuts[0]["review"] and not cuts[0]["enabled"]
+    assert cuts[0]["start"]>2.5 and cuts[0]["end"]<7.5
+    assert diagnostics["nonSpeechCandidates"]==1 and diagnostics["automaticCuts"]==0
+    assert "검토 제안 1개" in diagnostics["noCutReason"]
+    # An isolated sentence is not a reason to propose removing a long visual outro.
+    assert plan(source,[speech()],[],[],motion(),[[1,3]],"basic")[0]==[]
+
+
+def test_complete_word_timing_can_expose_a_confirmed_internal_pause(source):
+    segment=speech(1,10.5,"첫 번째 문장입니다. 다음 문장을 이어갑니다.")
+    segment["words"]=[{"start":1,"end":2.5,"text":"첫 번째 문장입니다.","confidence":.95},
+                      {"start":8,"end":10.5,"text":"다음 문장을 이어갑니다.","confidence":.95}]
+    args=(source,[segment],[[3,7.5]],[],motion(),[[1,2.5],[8,10.5]],"basic")
+    diagnostics={}
+    cuts,_=plan(*args,diagnostics)
+    assert len(cuts)==1 and cuts[0]["enabled"]
+    assert cuts[0]["start"]==3.25 and cuts[0]["end"]==7.25
+    assert diagnostics["wordTimingSegments"]==1
+    # Missing/low-confidence words fall back to protecting the entire ASR segment.
+    for words in [segment["words"][:1],[{**w,"confidence":.4} for w in segment["words"]]]:
+        candidate=copy.deepcopy(segment);candidate["words"]=words
+        assert plan(source,[candidate],[[3,7.5]],[],motion(),[[1,2.5],[8,10.5]],"basic")[0]==[]
+    # VAD still protects speech even when the transcript's word list missed it.
+    cuts,_=plan(source,[segment],[[3,7.5]],[],motion(),[[1,2.5],[4,6],[8,10.5]],"basic")
+    assert not any(c["enabled"] for c in cuts)
+
+
+def test_rejected_cut_does_not_consume_the_removal_budget(source):
+    source["duration"]=20
+    moves=[{"time":t/2,"value":0} for t in range(40)]
+    cuts,_=plan(source,[speech()],[[3,14],[15,18]],[],moves,[[1,3]],"basic")
+    assert len(cuts)==2
+    assert not cuts[0]["enabled"] and cuts[0]["review"]
+    assert cuts[1]["enabled"]
+
+
+def test_summary_uses_merged_deletions_and_explains_pending_edits(tmp_path,source):
+    p=Store(tmp_path).create(source)
+    p["analyzed"]=True
+    p["analysisSummary"]={"style":"basic"}
+    p["cuts"]=[{"id":"a","start":2,"end":5,"enabled":True,"review":False},
+               {"id":"b","start":4,"end":6,"enabled":True,"review":False},
+               {"id":"c","start":8,"end":9,"enabled":False,"review":True}]
+    summary=cut_summary(p)
+    assert summary["appliedCount"]==2 and summary["intervalCount"]==1
+    assert summary["removedDuration"]==4 and summary["outputDuration"]==8
+    assert summary["reviewCount"]==1
+    p["cuts"][0]["enabled"]=p["cuts"][1]["enabled"]=False
+    summary=cut_summary(p)
+    assert summary["removedDuration"]==0 and summary["outputDuration"]==source["duration"]
+    assert "검토 제안 1개" in summary["noCutReason"]
+    p["style"]="fast"
+    assert cut_summary(p)["analysisNeedsRefresh"]
+    p.pop("analysisSummary")
+    assert not cut_summary(p)["analysisNeedsRefresh"]
+
+
+def test_audit_preserves_words_when_only_an_internal_pause_is_cut(tmp_path,source):
+    p=Store(tmp_path).create(source)
+    segment=speech(1,10.5,"첫 문장입니다. 다음 문장입니다.")
+    segment["words"]=[{"start":1,"end":2.5,"text":"첫 문장입니다.","confidence":.95},
+                      {"start":8,"end":10.5,"text":"다음 문장입니다.","confidence":.95}]
+    p["transcript"]=[segment]
+    p["cuts"]=[{"id":"pause","start":3.25,"end":7.25,"enabled":True,"review":False}]
+    audit=transcript_audit(p)
+    assert audit["after"]==segment["text"]
+    assert audit["partial"]==[] and audit["removed"]==[]
+
+
+def test_audit_does_not_hide_removal_of_a_very_short_word(tmp_path,source):
+    p=Store(tmp_path).create(source)
+    segment=speech(1,4,"안 됩니다.")
+    segment["words"]=[{"start":1,"end":1.01,"text":"안", "confidence":.95},
+                      {"start":2,"end":4,"text":"됩니다.","confidence":.95}]
+    p["transcript"]=[segment]
+    p["cuts"]=[{"id":"word","start":.8,"end":1.2,"enabled":True,"review":False}]
+    audit=transcript_audit(p)
+    assert audit["after"]=="" and len(audit["partial"])==1
+    assert audit["partial"][0]["retained"]>.98

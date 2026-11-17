@@ -1,10 +1,12 @@
 # LocalCut AI · AI 자동 영상 편집기
 
-Windows 10/11 x64를 위한 **로컬 우선 데스크톱 편집기 v0.2.1 개발 소스**입니다. Electron/React 화면과 Python/FFmpeg 엔진을 실제 구현했습니다. Codex 구독, OpenAI 키 또는 유료 API를 사용하지 않습니다.
+Windows 10/11 x64를 위한 **로컬 우선 데스크톱 편집기 v0.2.2 개발 소스**입니다. Electron/React 화면과 Python/FFmpeg 엔진을 실제 구현했습니다. Codex 구독, OpenAI 키 또는 유료 API를 사용하지 않습니다.
 
 **현재 배포 상태:** [GitHub Windows 빌드·설치 테스트](https://github.com/want220109/localcut-ai/actions/runs/44023918892)가 통과했습니다. Python 52개·Node 6개 테스트, 동결 엔진, 실제 NSIS 설치, 설치된 앱의 편집·MP4 저장·재실행을 검증했습니다. 0.2.1에서는 공개 릴리스가 없을 때의 안내도 실제 Windows 앱에서 검증했습니다. [설치본 ZIP](https://github.com/want220109/localcut-ai/actions/runs/44023918892/artifacts/14302916162)을 받아 압축을 풀고 `release/LocalCut-AI-0.2.1-x64-Setup.exe`를 실행하세요. Actions 다운로드에는 GitHub 로그인이 필요합니다. GitHub 공개 릴리스는 아직 없으며 실제 발화 인식 정확도·사용자 PC 업그레이드·온라인 업데이트 검증은 남아 있습니다. 검증 기록은 [개발 결과](docs/STATUS.md)를 확인하세요.
 
 ## 사용자 기능
+
+0.2.2의 1차 개선은 [최신 편집 저장·삭제 적용 요약](docs/UPDATE_PHASE1.md)입니다. 전체 롱폼 편집 흐름은 [무료 로컬 개발 5단계](docs/ROADMAP.md)로 나누어 진행하며 후속 계획을 현재 완성 기능과 구분합니다.
 
 0.2.0에는 **유튜브 롱폼·쇼츠·인스타 릴스 자막 프리셋 6종**, 무료 번들 글꼴, 위치 여백·단어 강조·두 줄 배치가 포함됩니다. [자막 프리셋과 업데이트 방법](docs/SUBTITLE_PRESETS.md)을 참고하세요.
 

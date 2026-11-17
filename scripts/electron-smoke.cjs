@@ -3,6 +3,7 @@ const {_electron:electron}=require('playwright');
 const fs=require('node:fs/promises');
 const path=require('node:path');
 const {spawnSync}=require('node:child_process');
+const crypto=require('node:crypto');
 async function main(){
  const root=path.resolve(__dirname,'..');
  const testRoot=path.join(root,'test-results',process.env.LOCALCUT_PACKAGED_EXE?'installed-electron':'electron');await fs.mkdir(testRoot,{recursive:true});
@@ -10,6 +11,7 @@ async function main(){
  const ffmpeg=process.env.LOCALCUT_MEDIA_DIR?path.join(process.env.LOCALCUT_MEDIA_DIR,'ffmpeg.exe'):'ffmpeg';
  const created=spawnSync(ffmpeg,['-v','error','-y','-f','lavfi','-i','testsrc2=size=640x360:rate=24:duration=6','-c:v','libx264','-threads','2','-pix_fmt','yuv420p',sample],{encoding:'utf8'});
  if(created.status!==0) throw new Error(created.stderr);
+ const sourceOriginalHash=crypto.createHash('sha256').update(await fs.readFile(sample)).digest('hex');
  const args=[...(process.env.LOCALCUT_PACKAGED_EXE?[]:['.']),`--user-data-dir=${path.join(testRoot,'appdata-'+Date.now())}`];
  if(process.platform==='linux'){args.push('--no-sandbox','--disable-gpu');if(!process.env.DISPLAY)args.push('--ozone-platform=headless');}
  const options={args,cwd:root,executablePath:process.env.LOCALCUT_PACKAGED_EXE||undefined,timeout:30000,env:{...process.env,XDG_CACHE_HOME:path.join(testRoot,'cache'),GSETTINGS_BACKEND:'memory',LOCALCUT_PYTHON:process.env.LOCALCUT_PYTHON||path.join(root,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python')}};
@@ -69,6 +71,31 @@ async function main(){
   await page.getByLabel('자연어 수정 요청').fill('잘라낸 대화를 다시 살려줘');
   await page.getByRole('button',{name:'수정 요청 적용'}).click();
   await page.getByText('삭제 구간을 모두 복원했습니다.').waitFor();
+  // Saving a stale preview must render the current revision first, then copy that file.
+  const exportTarget=path.join(testRoot,'최신 편집 저장.mp4');
+  await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},exportTarget);
+  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+  await page.locator('.banner.success').filter({hasText:exportTarget}).waitFor({timeout:60000});
+  const latest=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
+  if(latest.project.output.revision!==latest.project.revision || Math.abs(latest.project.output.duration-6)>.2 || latest.project.output.path===result.project.output.path)throw new Error('Stale output was exported');
+  if(latest.audit.cutSummary.appliedCount!==0 || latest.audit.cutSummary.removedDuration!==0)throw new Error('Cut summary did not reflect restoration');
+  const digest=data=>crypto.createHash('sha256').update(data).digest('hex');
+  if(digest(await fs.readFile(exportTarget))!==digest(await fs.readFile(latest.project.output.path)))throw new Error('Saved file is not the latest output');
+  const originalHash=sourceOriginalHash;
+  // Original-file protection is enforced by main, even for direct IPC requests.
+  await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},sample);
+  const overwrite=await page.evaluate(async id=>{try{await window.localcut.call('export',{id,kind:'mp4'});return '';}catch(err){return err.message;}},p.id);
+  if(!overwrite.includes('원본 영상에는 저장할 수 없습니다.'))throw new Error('Original-file export guard failed');
+  // The save dialog holds the main-process lock: edits cannot race a file export.
+  await app.evaluate(({dialog})=>{globalThis.__saveWaiter=null;dialog.showSaveDialog=()=>new Promise(resolve=>{globalThis.__saveWaiter=resolve;});});
+  const pendingSave=page.evaluate(id=>window.localcut.call('export',{id,kind:'mp4'}),p.id);
+  await app.evaluate(()=>new Promise((resolve,reject)=>{let tries=0;const timer=setInterval(()=>{if(globalThis.__saveWaiter){clearInterval(timer);resolve();}else if(++tries>500){clearInterval(timer);reject(new Error('Save dialog did not open'));}},20);}));
+  const racedEdit=await page.evaluate(async id=>{try{await window.localcut.call('edit',{id,changes:{settings:{fontSize:50}}});return '';}catch(err){return err.message;}},p.id);
+  if(!racedEdit.includes('진행 중인 작업'))throw new Error('Export did not lock edits');
+  await app.evaluate(()=>globalThis.__saveWaiter({canceled:true}));
+  if(await pendingSave!==null)throw new Error('Canceled save was not canceled');
+  if(digest(await fs.readFile(sample))!==originalHash)throw new Error('Original video changed');
+  console.log('Latest-revision export, source protection, canceled save and edit lock passed');
   await page.screenshot({path:path.join(testRoot,'02-project.png'),fullPage:true});
   // Renderer cannot navigate the Electron window to remote code.
   if(errors.length)throw new Error('Renderer errors: '+errors.join('; '));
@@ -82,7 +109,7 @@ async function main(){
   await reopened.locator('video').first().waitFor();
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,restartPassed:true,subtitlePresetsPassed:true,health,media,projectId:p.id,output:result.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,restartPassed:true,subtitlePresetsPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } finally {if(app)await app.close();}
 }

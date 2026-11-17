@@ -92,6 +92,35 @@ def test_source_changes_are_detected(tmp_path,sample):
         render(p,Store(tmp_path/"data").directory(p["id"]),lambda *_:None)
 
 
+@pytest.mark.integration
+def test_review_candidate_only_shortens_after_explicit_apply(tmp_path,sample):
+    from engine.planner import plan
+    from engine.project import cut_summary
+    original=hashlib.sha256(sample.read_bytes()).hexdigest()
+    store=Store(tmp_path)
+    p=store.create(probe(sample))
+    # Speech timings are fixtures; the rendering and output measurements are real FFmpeg.
+    transcript=[{"id":"a","start":.5,"end":1.5,"text":"첫 번째 설명입니다.","confidence":.95,"words":[]},
+                {"id":"b","start":6,"end":7.5,"text":"다음 설명입니다.","confidence":.95,"words":[]}]
+    p["cuts"],p["warnings"]=plan(p["source"],transcript,[],[],[],[[.5,1.5],[6,7.5]],"basic")
+    p.update(transcript=transcript,analyzed=True)
+    assert len(p["cuts"])==1 and not p["cuts"][0]["enabled"]
+    assert cut_summary(p)["reviewCount"]==1
+    store.save(p)
+    before=dispatch({"root":str(tmp_path),"action":"render","id":p["id"]})["project"]
+    assert abs(before["output"]["duration"]-8)<.15
+    cuts=[{**c,"enabled":True} for c in p["cuts"]]
+    edited=store.edit(p["id"],{"cuts":cuts})
+    expected=cut_summary(edited)["outputDuration"]
+    after=dispatch({"root":str(tmp_path),"action":"render","id":p["id"]})["project"]
+    assert abs(after["output"]["duration"]-expected)<.15
+    assert after["output"]["duration"]<before["output"]["duration"]-3
+    report=json.loads(Path(after["output"]["report"]).read_text(encoding="utf-8"))
+    assert report["audit"]["cutSummary"]["appliedCount"]==1
+    assert after["output"]["revision"]==after["revision"]
+    assert hashlib.sha256(sample.read_bytes()).hexdigest()==original
+
+
 def test_lazy_cuda_failure_restarts_inference_on_cpu(tmp_path,sample,monkeypatch):
     import ctranslate2
     import faster_whisper

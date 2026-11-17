@@ -103,21 +103,73 @@ def output_duration(p):
     return sum(b-a for a, b in keeps(p))
 
 
+def aligned_words(segment):
+    """Return only a complete, ordered, trustworthy word alignment; otherwise protect the segment."""
+    words=segment.get("words") or []
+    normalize=lambda value:re.sub(r"[\W_]","",value).lower()
+    try:
+        if not words or segment.get("confidence",0)<.6:
+            return []
+        if not normalize(segment["text"]) or normalize("".join(w["text"] for w in words))!=normalize(segment["text"]):
+            return []
+        previous=segment["start"]
+        for word in words:
+            a,b=word["start"],word["end"]
+            if not (math.isfinite(a) and math.isfinite(b) and segment["start"]<=a<b<=segment["end"] and a>=previous-.02 and word.get("confidence",0)>=.65):
+                return []
+            previous=b
+        return words
+    except (KeyError,TypeError,ValueError):
+        return []
+
+
+def cut_summary(p):
+    duration=p["source"]["duration"]
+    result=output_duration(p)
+    applied=sum(c["enabled"] for c in p["cuts"])
+    pending=sum(c["review"] and not c["enabled"] for c in p["cuts"])
+    analysis=p.get("analysisSummary") or {}
+    if not isinstance(analysis,dict):
+        analysis={}
+    reason=""
+    if not applied:
+        if pending:
+            reason=f"검토 제안 {pending}개가 보존 중입니다. 삭제 적용 전에는 원본 길이를 유지합니다."
+        elif p["cuts"]:
+            reason="삭제 구간이 모두 복원되어 원본 길이를 유지합니다."
+        elif not p["analyzed"]:
+            reason="아직 영상 분석 전입니다. 분석하거나 직접 삭제 구간을 추가할 수 있습니다."
+        else:
+            reason=analysis.get("noCutReason") or "안전하게 자동 삭제할 구간을 찾지 못해 원본 길이를 유지합니다."
+    return {"sourceDuration":duration,"outputDuration":result,"removedDuration":max(0,duration-result),
+            "appliedCount":applied,"reviewCount":pending,"intervalCount":len(merged_ranges(p["cuts"],duration)),
+            "noCutReason":reason,"analysisNeedsRefresh":bool(p["analyzed"] and analysis.get("style") and analysis["style"]!=p["style"])}
+
+
 def transcript_audit(p):
     intervals = keeps(p)
     before, after, removed, partial = [], [], [], []
     for s in p["transcript"]:
         before.append(s["text"])
-        retained = sum(max(0, min(b, s["end"]) - max(a, s["start"])) for a, b in intervals)
-        ratio = retained / (s["end"] - s["start"])
-        if ratio >= .98:
+        words=aligned_words(s)
+        if words:
+            retained=[sum(max(0,min(b,w["end"])-max(a,w["start"])) for a,b in intervals) for w in words]
+            ratios=[value/(w["end"]-w["start"]) for value,w in zip(retained,words)]
+            ratio=sum(retained)/sum(w["end"]-w["start"] for w in words)
+            fully_kept,fully_removed=all(r>=.98 for r in ratios),all(r<=.02 for r in ratios)
+        else:
+            retained=sum(max(0,min(b,s["end"])-max(a,s["start"])) for a,b in intervals)
+            ratio=retained/(s["end"]-s["start"])
+            fully_kept,fully_removed=ratio>=.98,ratio<=.02
+        if fully_kept:
             after.append(s["text"])
-        elif ratio <= .02:
+        elif fully_removed:
             removed.append({"id": s["id"], "text": s["text"], "important": s.get("important", False)})
         else:
             partial.append({"id": s["id"], "text": s["text"], "retained": round(ratio, 3)})
     return {"before": "\n".join(before), "after": "\n".join(after), "removed": removed, "partial": partial,
-            "importantRemoved": sum(s["important"] for s in removed), "outputDuration": output_duration(p)}
+            "importantRemoved": sum(s["important"] for s in removed), "outputDuration": output_duration(p),
+            "cutSummary":cut_summary(p)}
 
 
 class Store:

@@ -101,23 +101,33 @@ async function request(event,message) {
   }
   if(action==='export' || action==='reveal') {
     if(busy) throw new Error('영상 처리 완료 후 저장해 주세요.');
-    const {project:p}=await engine({action:'get',id});
-    if(!p.output) throw new Error('먼저 MP4를 출력해 주세요.');
-    const filename=p.output[message.kind==='srt'?'srt':message.kind==='report'?'report':'path'];
-    const real=await fs.realpath(filename);
-    if(!inside(await fs.realpath(path.join(dataRoot,'jobs',id)),real)) throw new Error('작업 폴더 밖의 파일을 내보낼 수 없습니다.');
-    if(action==='reveal') {shell.showItemInFolder(real);return true;}
-    const extension=path.extname(real).slice(1);
-    const r=await dialog.showSaveDialog(window,{defaultPath:p.name+(extension==='mp4'?'-편집':'')+'.'+extension,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});
-    if(r.canceled) return null;
-    const target=path.resolve(r.filePath);
-    // Protect the original even if a user selects it in the Save dialog (including hard links).
-    const sourceStat=await fs.stat(p.source.path);
-    let targetStat;try {targetStat=await fs.stat(target);}catch(err){if(err.code!=='ENOENT')throw err;}
-    if(target===path.resolve(p.source.path) || (targetStat && targetStat.dev===sourceStat.dev && targetStat.ino===sourceStat.ino)) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
-    if(target===real) return target;
-    await fs.copyFile(real,target);
-    return target;
+    const kind=message.kind||'mp4';
+    if(!['mp4','srt','report'].includes(kind)) throw new Error('지원하지 않는 저장 형식입니다.');
+    // Hold the edit/update-install lock through rendering, the save dialog and file copy.
+    // Otherwise an edit during the dialog could export an obsolete result.
+    busy=true;
+    try {
+      let {project:p}=await engine({action:'get',id},false);
+      if(!p.output || p.output.revision!==p.revision) {
+        ({project:p}=await engine({action:'render',id},false));
+      }
+      if(!p.output || p.output.revision!==p.revision) throw new Error('최신 편집 결과를 출력하지 못했습니다. 다시 시도해 주세요.');
+      const filename=p.output[kind==='srt'?'srt':kind==='report'?'report':'path'];
+      const real=await fs.realpath(filename);
+      if(!inside(await fs.realpath(path.join(dataRoot,'jobs',id)),real)) throw new Error('작업 폴더 밖의 파일을 내보낼 수 없습니다.');
+      if(action==='reveal') {shell.showItemInFolder(real);return true;}
+      const extension=path.extname(real).slice(1);
+      const r=await dialog.showSaveDialog(window,{defaultPath:p.name+(extension==='mp4'?'-편집':'')+'.'+extension,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});
+      if(r.canceled) return null;
+      const target=path.resolve(r.filePath);
+      // Protect the original even if a user selects it in the Save dialog (including hard links).
+      const sourceStat=await fs.stat(p.source.path);
+      let targetStat;try {targetStat=await fs.stat(target);}catch(err){if(err.code!=='ENOENT')throw err;}
+      if(target===path.resolve(p.source.path) || (targetStat && targetStat.dev===sourceStat.dev && targetStat.ino===sourceStat.ino)) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
+      if(target===real) return target;
+      await fs.copyFile(real,target);
+      return target;
+    } finally {busy=false;}
   }
   throw new Error('지원하지 않는 요청입니다.');
 }
