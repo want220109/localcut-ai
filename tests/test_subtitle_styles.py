@@ -28,6 +28,7 @@ def test_old_project_keeps_its_style_and_edits(tmp_path):
     atomic_json(store.directory(p["id"])/"project.json",p)
     loaded=store.load(p["id"])
     assert loaded["settings"]["subtitlePreset"]=="legacy" and loaded["settings"]["fontSize"]==56
+    assert loaded["settings"]["captionSizeMode"]=="manual" and loaded["settings"]["captionScale"]=="height"
     assert loaded["captions"]==p["captions"] and loaded["cuts"]==p["cuts"]
     before=copy.deepcopy(loaded)
     edited=store.edit(p["id"],{"settings":preset_settings("shorts_pop")})
@@ -37,14 +38,32 @@ def test_old_project_keeps_its_style_and_edits(tmp_path):
         assert edited["settings"][key]==before["settings"][key]
 
 
+def test_default_size_tracks_output_orientation_until_manually_overridden(tmp_path):
+    store=Store(tmp_path)
+    project=store.create(source())
+    project_id=project["id"]
+    assert project["settings"]["fontSize"]==64 and project["settings"]["captionScale"]=="short-edge"
+    vertical=store.edit(project_id,{"style":"shorts","settings":{"aspect":"9:16"}})
+    assert vertical["settings"]["fontSize"]==80
+    store.edit(project_id,{"settings":{"fontSize":72}})
+    resized=store.edit(project_id,{"settings":{"aspect":"16:9"}})
+    assert resized["settings"]["fontSize"]==72 and resized["settings"]["captionSizeMode"]=="manual"
+    automatic=store.edit(project_id,{"settings":{"captionSizeMode":"auto"}})
+    assert automatic["settings"]["fontSize"]==64
+    portrait=store.create({**source(),"width":1080,"height":1920,"aspect":"9:16"})
+    assert portrait["settings"]["fontSize"]==80
+    assert preset_settings("youtube_clean")["fontSize"]==64
+    assert preset_settings("youtube_box")["fontSize"]==64
+
+
 def test_portrait_size_uses_short_edge_and_safe_margins(tmp_path):
     settings={**Store(tmp_path).create(source())["settings"],**preset_settings("shorts_pop")}
     large=layout(settings,1080,1920);small=layout(settings,720,1280)
-    assert large["fontSize"]==76 and small["fontSize"]==51
+    assert large["fontSize"]==80 and small["fontSize"]==53
     assert large["marginVertical"]==442
     assert large["marginRight"]>large["marginLeft"]
     legacy=layout({**settings,"captionScale":"height"},1080,1920)
-    assert legacy["fontSize"]==135
+    assert legacy["fontSize"]==142
 
 
 def test_wrapping_preserves_words_and_escapes_ass_commands(tmp_path):

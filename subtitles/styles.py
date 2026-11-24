@@ -11,6 +11,7 @@ from pathlib import Path
 
 CATALOG=json.loads(Path(__file__).with_name("presets.json").read_text(encoding="utf-8"))
 DEFAULTS=CATALOG["defaults"]
+AUTOMATIC_SIZES=CATALOG["automaticSizes"]
 FONTS=CATALOG["fonts"]
 PRESETS={p["id"]:p for p in CATALOG["presets"]}
 
@@ -22,7 +23,7 @@ def with_defaults(settings):
 def preset_settings(identifier):
     if identifier not in PRESETS:
         raise ValueError("알 수 없는 자막 프리셋입니다.")
-    return {**copy.deepcopy(PRESETS[identifier]["settings"]),"subtitlePreset":identifier}
+    return {**copy.deepcopy(PRESETS[identifier]["settings"]),"subtitlePreset":identifier,"captionSizeMode":"manual"}
 
 
 def validate_style(settings):
@@ -31,6 +32,8 @@ def validate_style(settings):
         raise ValueError("지원하지 않는 자막 프리셋 또는 글꼴입니다.")
     if s["captionScale"] not in {"height","short-edge"}:
         raise ValueError("자막 크기 기준이 잘못되었습니다.")
+    if s["captionSizeMode"] not in {"auto","manual"}:
+        raise ValueError("지원하지 않는 자막 크기 설정입니다.")
     for key in ("fontBold","captionWrap"):
         if type(s[key]) is not bool:raise ValueError("자막 옵션이 잘못되었습니다.")
     for key,maximum in (("captionMarginVertical",40),("captionMarginLeft",30),("captionMarginRight",30),("captionShadow",6)):

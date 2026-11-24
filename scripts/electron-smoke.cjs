@@ -54,6 +54,12 @@ async function main(){
   await page.reload();
   await page.getByRole('button',{name:/실제 테스트/}).click();
   await page.getByText('실제 테스트',{exact:true}).first().waitFor();
+  const sizeField=page.getByLabel('자막 크기',{exact:true});
+  await sizeField.locator('option:checked').filter({hasText:'자동 · 64px'}).waitFor({state:'attached'});
+  await page.getByRole('button',{name:/쇼츠 · 릴스/}).click();
+  await sizeField.locator('option:checked').filter({hasText:'자동 · 80px'}).waitFor({state:'attached'});
+  await page.getByRole('button',{name:/기본 편집/}).click();
+  await sizeField.locator('option:checked').filter({hasText:'자동 · 64px'}).waitFor({state:'attached'});
   await page.waitForFunction(()=>document.querySelector('video')?.readyState>=1);
   // Verify the custom local-media protocol, metadata, and video decoding.
   const media=await page.evaluate(async()=>{

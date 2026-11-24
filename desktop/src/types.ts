@@ -6,6 +6,7 @@ export interface Settings {
  subtitles:boolean;fontSize:number;color:string;outline:number;background:boolean;position:'bottom'|'middle'|'top';
  resolution:'source'|'720'|'1080';aspect:'source'|'16:9'|'9:16'|'1:1';quality:'high'|'balanced'|'small';zoom:number;denoise:boolean;normalize:boolean;
  subtitlePreset:string;fontFamily:'malgun'|'nanum'|'blackhan';fontBold:boolean;captionScale:'height'|'short-edge';
+ captionSizeMode:'auto'|'manual';
  captionMarginVertical:number;captionMarginLeft:number|null;captionMarginRight:number|null;captionShadow:number;captionWrap:boolean;captionMaxChars:number;
  highlightWords:string;highlightColor:string;
 }

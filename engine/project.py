@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from subtitles.styles import with_defaults, validate_style
+from subtitles.styles import AUTOMATIC_SIZES, with_defaults, validate_style
 
 SCHEMA = 1
 ID_RE = re.compile(r"^[a-f0-9]{32}$")
@@ -62,6 +62,11 @@ def validate(p):
     finite(settings["zoom"], 1, 1.2)
     if settings["resolution"] not in {"source", "720", "1080"} or settings["aspect"] not in {"source", "16:9", "9:16", "1:1"}:
         raise ValueError("출력 화면 설정이 잘못되었습니다.")
+    if settings["captionSizeMode"] == "auto":
+        aspect = settings["aspect"]
+        portrait = aspect == "9:16" or (aspect == "source" and p["source"]["height"] > p["source"]["width"])
+        settings["fontSize"] = AUTOMATIC_SIZES["portrait" if portrait else "standard"]
+        settings["captionScale"] = "short-edge"
     if settings["quality"] not in {"high", "balanced", "small"} or settings["position"] not in {"bottom", "middle", "top"}:
         raise ValueError("자막 위치 또는 화질이 잘못되었습니다.")
     if not re.fullmatch(r"#[0-9a-fA-F]{6}", settings["color"]):
@@ -206,7 +211,8 @@ class Store:
              "createdAt": time.time(), "updatedAt": time.time(), "source": source, "style": "basic",
              "analyzed": False, "transcript": [], "captions": [], "cuts": [], "scenes": [], "motion": [],
              "warnings": [], "model": None, "output": None, "revision": 0,
-             "settings": {"subtitles": True, "fontSize": 48, "color": "#FFFFFF", "outline": 2,
+             "settings": {"subtitles": True, "fontSize": AUTOMATIC_SIZES["standard"], "captionSizeMode": "auto",
+                          "color": "#FFFFFF", "outline": 2,
                           "background": False, "position": "bottom", "resolution": "source", "aspect": "source",
                           "quality": "balanced", "zoom": 1.0, "denoise": True, "normalize": True}}
         return self.save(p)
@@ -233,6 +239,8 @@ class Store:
                 if set(value) - set(p["settings"]):
                     raise ValueError("알 수 없는 설정입니다.")
                 updated[key].update(value)
+                if "captionSizeMode" not in value and ("fontSize" in value or "captionScale" in value):
+                    updated[key]["captionSizeMode"] = "manual"
             else:
                 updated[key] = value
         updated["revision"] += 1

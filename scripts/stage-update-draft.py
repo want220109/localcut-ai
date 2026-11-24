@@ -50,13 +50,14 @@ verification=Path("update-verification.json")
 verification.write_text(json.dumps({"installer":payload,"upgrade":upgrade,"build":sha,"run":run_id},indent=2)+"\n",encoding="utf-8")
 assets=list(Path("candidate/release").glob("*Setup.exe"))+list(Path("candidate/release").glob("*.blockmap"))+[Path("candidate/release/latest.yml"),verification]+list(sources.iterdir())
 assets=[file for file in assets if file.is_file()]
+changelog=(Path(__file__).resolve().parents[1]/"CHANGELOG.md").read_text(encoding="utf-8")
+sections=changelog.split("\n## ")[1:]
+changes=next((section.partition("\n")[2].strip() for section in sections if section.startswith(version+" —")),"")
 notes=f"""LocalCut AI {tag}
 
 앱의 모델 · 업데이트 → 업데이트 확인 → 다운로드 → 설치하고 재시작으로 적용합니다. 설치 파일을 별도로 실행할 필요가 없습니다. 기존 작업·모델은 유지됩니다.
 
-1차 업데이트: 최신 편집으로 MP4 저장, 편집 전후 시간·삭제 적용 요약, 발화 사이 공백의 보수적인 검토 후보를 포함합니다. 업데이트 설치는 앱을 종료하고 자동으로 다시 실행합니다.
-
-새 기능: 원본과 편집 결과 미리보기에 ‘5초 뒤로 / 5초 앞으로’ 버튼을 추가했습니다. 영상 시작과 끝에서 멈추며 편집 내용과 원본 파일은 바꾸지 않습니다.
+{changes}
 
 검증: Windows {upgrade.get('from','이전 버전')} 설치본에서 후보 피드를 통한 실제 다운로드·SHA-512 손상 거부·NSIS 설치·자동 재시작·자막/컷/설정 및 작업 폴더 보존·MP4 출력 통과. 공개 GitHub 피드 업그레이드는 게시 후 별도 확인 대상입니다. 실제 사용자 PC·한국어 ASR·CUDA 검증과는 구분합니다.
 
