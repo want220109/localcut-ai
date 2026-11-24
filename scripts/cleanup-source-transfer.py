@@ -3,7 +3,6 @@ import json
 import os
 import re
 import subprocess
-from pathlib import Path
 
 repo=os.environ["GITHUB_REPOSITORY"]
 run_id=os.environ["TRANSFER_RUN"]
@@ -33,20 +32,11 @@ for release in releases:
     installer=evidence["installer"]
     if release["target_commitish"]!=evidence["build"] or names.get(installer["installer"],{}).get("digest")!="sha256:"+installer["sha256"] or names[installer["installer"]]["size"]!=installer["bytes"]:
         raise SystemExit("Permanent installer provenance mismatch: retaining source transfer")
-    # Draft-owner instructions must not appear in end users' update notes later.
-    # Updating notes here is private only; the publication flag is never changed.
-    instruction="관리자 검토용 미공개 초안입니다. 관리자가 파일과 검증 결과를 확인하고 Publish release를 눌러야 앱에 공개됩니다."
+    # Finalization verifies metadata only. Editing an untagged draft here could
+    # reset its semantic tag or need additional GitHub permissions.
     expected_tag="v"+installer["version"]
-    if release["draft"] and (release["tag_name"]!=expected_tag or instruction in (release.get("body") or "")):
-        body=(release.get("body") or "").replace(instruction,"").strip()+"\n"
-        patch=Path("cleanup-check/private-notes.json")
-        # Keep the semantic tag explicitly: GitHub can otherwise reset an
-        # untagged draft's tag_name while its notes are being edited.
-        patch.write_text(json.dumps({"body":body,"tag_name":expected_tag,"target_commitish":evidence["build"],"draft":True},ensure_ascii=False),encoding="utf-8")
-        subprocess.run(["gh","api","--method","PATCH",f"repos/{repo}/releases/{release['id']}","--input",str(patch)],check=True,stdout=subprocess.DEVNULL)
-        release=api(f"releases/{release['id']}")
-        if not release["draft"] or release["tag_name"]!=expected_tag or release["target_commitish"]!=evidence["build"]:
-            raise SystemExit("Draft version metadata changed unexpectedly; retaining transfer")
+    if release["tag_name"]!=expected_tag:
+        raise SystemExit("Owner must set the semantic release tag before publication")
     validated=True
     reused=str(manifest.get("materialsArtifactRun",""))
     if reused and reused!=run_id:

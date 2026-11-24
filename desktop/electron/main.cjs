@@ -1,9 +1,9 @@
-const {app,BrowserWindow,ipcMain,dialog,protocol,net,shell} = require('electron');
+const {app,BrowserWindow,ipcMain,dialog,protocol,shell} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {pathToFileURL} = require('node:url');
+const {mediaResponse} = require('./media.cjs');
 const {projectId,inside,validMedia,trustedSender} = require('./policy.cjs');
 const {UpdateController} = require('../../updater/controller.cjs');
 const updateConfig = require('../../updater/config.json');
@@ -140,7 +140,7 @@ else {
       const url=new URL(req.url);const token=url.pathname.slice(1);
       const filename=url.hostname==='asset' && /^[a-f0-9]{48}$/.test(token) ? grants.get(token) : null;
       if(!filename) return new Response('Not found',{status:404});
-      try{return await net.fetch(pathToFileURL(filename).href,{headers:req.headers});}catch{return new Response('Missing media',{status:404});}
+      try{return await mediaResponse(filename,req);}catch{return new Response('Missing media',{status:404});}
     });
     window=new BrowserWindow({width:1480,height:1000,minWidth:1060,minHeight:760,backgroundColor:'#101217',
       title:'LocalCut AI · AI 자동 영상 편집기',webPreferences:{preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true}});

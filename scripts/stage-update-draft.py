@@ -56,7 +56,9 @@ notes=f"""LocalCut AI {tag}
 
 1차 업데이트: 최신 편집으로 MP4 저장, 편집 전후 시간·삭제 적용 요약, 발화 사이 공백의 보수적인 검토 후보를 포함합니다. 업데이트 설치는 앱을 종료하고 자동으로 다시 실행합니다.
 
-검증: Windows 0.2.0 설치본에서 후보 피드를 통한 실제 다운로드·SHA-512 손상 거부·NSIS 설치·자동 재시작·자막/컷/설정 및 작업 폴더 보존·MP4 출력 통과. 공개 GitHub 피드 업그레이드는 게시 후 별도 확인 대상입니다. 실제 사용자 PC·한국어 ASR·CUDA 검증과는 구분합니다.
+새 기능: 원본과 편집 결과 미리보기에 ‘5초 뒤로 / 5초 앞으로’ 버튼을 추가했습니다. 영상 시작과 끝에서 멈추며 편집 내용과 원본 파일은 바꾸지 않습니다.
+
+검증: Windows {upgrade.get('from','이전 버전')} 설치본에서 후보 피드를 통한 실제 다운로드·SHA-512 손상 거부·NSIS 설치·자동 재시작·자막/컷/설정 및 작업 폴더 보존·MP4 출력 통과. 공개 GitHub 피드 업그레이드는 게시 후 별도 확인 대상입니다. 실제 사용자 PC·한국어 ASR·CUDA 검증과는 구분합니다.
 
 빌드: https://github.com/{repo}/actions/runs/{run_id}
 소스: {sha}
@@ -64,7 +66,6 @@ notes=f"""LocalCut AI {tag}
 
 FFmpeg와 포함 네이티브 구성의 대응 소스·빌드 스크립트·패치·라이선스는 이 릴리스의 source bundle, dependency source parts, source distributions, runtime-notices.zip 및 SOURCE-MANIFEST.json을 참고하세요. 분할 자료는 reassemble-sources.py로 검증·결합합니다. 소스 자료는 앱 업데이트 시 다운로드하지 않습니다.
 
-관리자 검토용 미공개 초안입니다. 관리자가 파일과 검증 결과를 확인하고 Publish release를 눌러야 앱에 공개됩니다.
 """
 Path("draft-notes.md").write_text(notes,encoding="utf-8")
 if previous is None:
@@ -85,7 +86,7 @@ updated=next((item for page in pages for item in page if item["tag_name"]==tag),
 if updated is None:
     raise SystemExit("Prepared release draft is missing")
 release=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases/{updated['id']}"]))
-if not release["draft"] or release["prerelease"]:
+if not release["draft"] or release["prerelease"] or release["tag_name"]!=tag or release["target_commitish"]!=sha:
     raise SystemExit("Release must remain an unpublished stable draft")
 remote={asset["name"]:asset for asset in release["assets"]}
 for asset in assets:

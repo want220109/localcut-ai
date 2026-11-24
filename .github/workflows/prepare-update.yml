@@ -25,7 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: provenance
-        name: Validate candidate provenance without running downloaded code
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
@@ -34,10 +33,14 @@ jobs:
     needs: candidate
     runs-on: windows-2022
     timeout-minutes: 25
+    permissions:
+      # Read the owner's unpublished 0.2.3 baseline asset; never publish here.
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.candidate.outputs.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -53,27 +56,23 @@ jobs:
           path: candidate
           run-id: ${{ needs.candidate.outputs.run }}
           github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v4
-        with:
-          name: LocalCut-AI-Windows-x64
-          path: previous
-          run-id: '44018941776'
-          github-token: ${{ github.token }}
-      - name: Verify both packages and install the old version
+      - name: Fetch and verify installed 0.2.3 baseline
+        run: python scripts/prepare-upgrade-base.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Verify candidate and install baseline in isolated runner
         shell: pwsh
         run: |
           python scripts/verify-update-assets.py candidate/release '${{ needs.candidate.outputs.version }}'
           if ($LASTEXITCODE -ne 0) { throw 'Candidate package failed verification' }
-          python scripts/verify-update-assets.py previous/release 0.2.0
-          if ($LASTEXITCODE -ne 0) { throw 'Previous package failed verification' }
-          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.0-x64-Setup.exe).Path
-          if ((Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a3f7bdb0c3ac06f501142c8b098dc53bbcc883e19fb20f8240e591ff9d1dcba8') { throw 'Previous installer provenance mismatch' }
+          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.3-x64-Setup.exe).Path
           $installed = Start-Process $old -ArgumentList '/S' -Wait -PassThru
           if ($installed.ExitCode -ne 0) { throw 'Previous app installation failed' }
-          "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA\Programs\LocalCut AI\LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Test actual updater integrity, silent installation, restart and data preservation
+          "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA/Programs/LocalCut AI/LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Test 0.2.3 upgrade and new preview buttons
         run: node scripts/test-installed-upgrade.cjs
         env:
+          LOCALCUT_BASE_VERSION: '0.2.3'
           LOCALCUT_CANDIDATE_DIR: candidate
           LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
           LOCALCUT_CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}
@@ -83,52 +82,20 @@ jobs:
           name: installed-upgrade-results
           path: test-results/installed-upgrade/
           if-no-files-found: warn
-  sources:
-    needs: candidate
-    # Reuse the already checksum-verified native source transfer for 0.2.3.
-    # The staging script compares its runtime notices against the new build.
-    if: needs.candidate.outputs.version != '0.2.3'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: main
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - uses: actions/download-artifact@v4
-        with:
-          name: LocalCut-AI-Windows-x64
-          path: candidate
-          run-id: ${{ needs.candidate.outputs.run }}
-          github-token: ${{ github.token }}
-      - name: Preserve exact build source cache and native source materials
-        run: python scripts/collect-release-sources.py source-companions candidate/vendor/notices
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-source-companions
-          path: source-companions/
-          compression-level: 0
-          retention-days: 1
-          if-no-files-found: error
   draft:
-    needs: [candidate, upgrade, sources]
-    if: always() && needs.candidate.result == 'success' && needs.upgrade.result == 'success' && (needs.sources.result == 'success' || needs.sources.result == 'skipped')
+    needs: [candidate, upgrade]
     concurrency:
       group: draft-release-${{ needs.candidate.outputs.version }}
       cancel-in-progress: false
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
       actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.candidate.outputs.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -141,19 +108,17 @@ jobs:
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
-          name: release-source-companions
-          path: source-companions
-          run-id: ${{ needs.candidate.outputs.version == '0.2.3' && '44043122329' || github.run_id }}
-          github-token: ${{ github.token }}
-      - uses: actions/download-artifact@v4
-        with:
           name: installed-upgrade-results
           path: upgrade-results
-      - name: Stage an unpublished draft with verified immutable assets
+      - name: Collect source companions directly in the staging runner
+        run: python scripts/collect-release-sources.py source-companions candidate/vendor/notices
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
+      - name: Stage verified unpublished draft without large transfer artifacts
         run: python scripts/stage-update-draft.py
         env:
           GH_TOKEN: ${{ github.token }}
           LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
           LOCALCUT_CANDIDATE_RUN: ${{ needs.candidate.outputs.run }}
           LOCALCUT_CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}
-          LOCALCUT_SOURCE_TRANSFER_RUN: ${{ needs.candidate.outputs.version == '0.2.3' && '44043122329' || github.run_id }}

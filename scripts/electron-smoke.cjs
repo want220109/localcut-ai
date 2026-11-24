@@ -4,6 +4,29 @@ const fs=require('node:fs/promises');
 const path=require('node:path');
 const {spawnSync}=require('node:child_process');
 const crypto=require('node:crypto');
+const assert=require('node:assert/strict');
+async function checkSeekButtons(page,panel,label){
+ const selector=panel+' video';
+ await page.waitForFunction(selector=>{const v=document.querySelector(selector);return v?.readyState>=1&&Number.isFinite(v.duration);},selector);
+ const back=page.getByRole('button',{name:label+' 5초 뒤로',exact:true});
+ const forward=page.getByRole('button',{name:label+' 5초 앞으로',exact:true});
+ await page.locator(panel+' .preview-seek-controls button:not(:disabled)').first().waitFor();
+ const duration=await page.locator(selector).evaluate(v=>{v.pause();v.currentTime=1;return v.duration;});
+ await back.click();
+ await page.waitForFunction(selector=>document.querySelector(selector).currentTime===0,selector);
+ assert.equal(await page.locator(selector).evaluate(v=>v.paused),true,'Seeking must not autoplay');
+ await forward.focus();await forward.press('Enter');
+ await page.waitForFunction(({selector,time})=>Math.abs(document.querySelector(selector).currentTime-time)<.05,{selector,time:Math.min(5,duration)}).catch(async error=>{console.error('Seek diagnostic',await page.evaluate(selector=>{const v=document.querySelector(selector);return {time:v.currentTime,duration:v.duration,ready:v.readyState,error:v.error?.message,active:document.activeElement?.outerHTML,buttons:[...document.querySelectorAll('.preview-seek-controls button')].map(b=>({text:b.textContent,disabled:b.disabled}))};},selector));throw error;});
+ await forward.click();
+ await page.waitForFunction(({selector,time})=>Math.abs(document.querySelector(selector).currentTime-time)<.05,{selector,time:duration});
+ await back.click();
+ await page.waitForFunction(({selector,time})=>Math.abs(document.querySelector(selector).currentTime-time)<.05,{selector,time:Math.max(0,duration-5)});
+ // While playing, a backward seek must keep playing; no edit or output changes.
+ await page.locator(selector).evaluate(async v=>{v.currentTime=1;await v.play();});
+ await back.click();assert.equal(await page.locator(selector).evaluate(v=>v.paused),false);
+ await page.locator(selector).evaluate(v=>{v.pause();v.currentTime=0;});
+ console.log(label+' five-second seek: clamp, keyboard and playback state passed');
+}
 async function main(){
  const root=path.resolve(__dirname,'..');
  const testRoot=path.join(root,'test-results',process.env.LOCALCUT_PACKAGED_EXE?'installed-electron':'electron');await fs.mkdir(testRoot,{recursive:true});
@@ -18,6 +41,7 @@ async function main(){
  let app=await electron.launch(options);
  try{
   const page=await app.firstWindow({timeout:30000});page.setDefaultTimeout(30000);
+  await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];window.focus();window.webContents.focus();});
   const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.getByRole('heading',{name:'편집은 AI에게, 이야기는 당신에게.'}).waitFor();
   await page.waitForFunction(()=>!!window.localcut);
@@ -39,6 +63,10 @@ async function main(){
   });
   if(media.width!==640||media.error)throw new Error('Media preview failed: '+JSON.stringify(media));
   console.log('Local media playback passed');
+  const beforeSeek=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
+  await checkSeekButtons(page,'.source-panel','원본 영상');
+  const afterSeek=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
+  assert.equal(afterSeek.project.revision,beforeSeek.project.revision,'Preview seek must not edit the project');
   await page.getByRole('button',{name:'AI 분석·편집점 생성',exact:true}).click();
   await page.getByText('분석 결과가 준비되었습니다').waitFor({timeout:30000});
   await page.evaluate(id=>window.localcut.call('edit',{id,changes:{captions:[{id:'caption-fixture',start:.2,end:1.5,text:'오늘 영상의 핵심을 보여드립니다'}]}}),p.id);
@@ -68,6 +96,9 @@ async function main(){
   await page.locator('.result-panel .status-pill').filter({hasText:'출력 완료'}).waitFor({timeout:60000});
   const result=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(Math.abs(result.project.output.duration-4)>.2)throw new Error('Wrong output duration');
+  const sourcePosition=await page.locator('.source-panel video').evaluate(v=>v.currentTime);
+  await checkSeekButtons(page,'.result-panel','편집 결과');
+  assert.equal(await page.locator('.source-panel video').evaluate(v=>v.currentTime),sourcePosition,'Result seek must not move the source');
   await page.getByLabel('자연어 수정 요청').fill('잘라낸 대화를 다시 살려줘');
   await page.getByRole('button',{name:'수정 요청 적용'}).click();
   await page.getByText('삭제 구간을 모두 복원했습니다.').waitFor();
@@ -109,7 +140,7 @@ async function main(){
   await reopened.locator('video').first().waitFor();
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,restartPassed:true,subtitlePresetsPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } finally {if(app)await app.close();}
 }

@@ -12,7 +12,7 @@ on:
     types: [completed]
 permissions:
   # GitHub exposes unpublished draft assets only to tokens with contents: write.
-  # The script can edit notes only while draft=true; it never publishes releases.
+  # Finalization verifies the draft and never edits or publishes releases.
   contents: write
   actions: write
 jobs:
@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-      - name: Verify the draft, finalize private notes and remove completed source transfers
+      - name: Verify draft metadata and remove completed source transfers
         env:
           GH_TOKEN: ${{ github.token }}
           TRANSFER_RUN: ${{ github.event.workflow_run.id || inputs.run_id || '44045476164' }}

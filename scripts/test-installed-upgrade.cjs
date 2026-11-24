@@ -1,4 +1,4 @@
-// Real Windows installed 0.2.0 -> candidate update, including NSIS and restart.
+// Real Windows installed baseline -> candidate update, including NSIS and restart.
 // Only the transport is a loopback HTTP server before public release approval.
 const {_electron:electron}=require('playwright');
 const assert=require('node:assert/strict');
@@ -27,6 +27,7 @@ async function main(){
  const exe=process.env.LOCALCUT_TEST_INSTALLED_EXE;
  const version=process.env.LOCALCUT_CANDIDATE_VERSION||require('../package.json').version;
  const live=process.env.LOCALCUT_LIVE_GITHUB==='1';
+ const baseline=process.env.LOCALCUT_BASE_VERSION||'0.2.0';
  const directory=path.resolve('test-results/installed-upgrade');await fs.mkdir(directory,{recursive:true});
  const feed=path.resolve(process.env.LOCALCUT_CANDIDATE_DIR,'release');
  let corrupt=true,served=0;
@@ -50,7 +51,7 @@ async function main(){
   app=await electron.launch({executablePath:exe,args:[],timeout:60000});
   let page=await app.firstWindow();page.setDefaultTimeout(60000);
   await page.waitForFunction(()=>!!window.localcut);
-  const before=await page.evaluate(()=>window.localcut.call('health'));assert.equal(before.version,'0.2.0');
+  const before=await page.evaluate(()=>window.localcut.call('health'));assert.equal(before.version,baseline);
   const data=await app.evaluate(({app})=>app.getPath('userData'));
   const sentinel=path.join(data,'workspace/models/upgrade-test/keep.bin');await fs.mkdir(path.dirname(sentinel),{recursive:true});await fs.writeFile(sentinel,'LocalCut upgrade preservation fixture; not model weights');
   const media=path.join(path.dirname(exe),'resources/media/ffmpeg.exe');
@@ -74,7 +75,7 @@ async function main(){
   await until(async()=>(await page.evaluate(()=>window.localcut.call('updateStatus'))).status==='error','corrupted update rejected');
   const rejected=await page.evaluate(()=>window.localcut.call('updateStatus'));
   assert.match(rejected.message,/sha512|checksum|digest/i,'Checksum failure must reject altered installer');
-  assert.equal((await page.evaluate(()=>window.localcut.call('health'))).version,'0.2.0');
+  assert.equal((await page.evaluate(()=>window.localcut.call('health'))).version,baseline);
   corrupt=false;
   }
   await page.getByRole('button',{name:'업데이트 확인',exact:true}).click();
@@ -104,8 +105,17 @@ async function main(){
   assert.equal(await hash(sample),sourceHash);assert.equal(await hash(sentinel),modelHash);
   const rendered=await page.evaluate(id=>window.localcut.call('render',{id}),project.id);
   assert.ok(Math.abs(rendered.project.output.duration-5)<0.2,'Upgraded engine must render preserved cut');
+  await page.getByRole('button',{name:/업데이트 원본/}).click();
+  await page.locator('.source-panel .preview-seek-controls button:not(:disabled)').first().waitFor();
+  await page.getByRole('button',{name:'원본 영상 5초 앞으로',exact:true}).click();
+  await page.waitForFunction(()=>Math.abs(document.querySelector('.source-panel video').currentTime-5)<.1);
+  await page.getByRole('button',{name:'원본 영상 5초 뒤로',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('.source-panel video').currentTime===0);
+  await page.locator('.result-panel .preview-seek-controls button:not(:disabled)').first().waitFor();
+  await page.getByRole('button',{name:'편집 결과 5초 앞으로',exact:true}).click();
+  await page.waitForFunction(()=>Math.abs(document.querySelector('.result-panel video').currentTime-5)<.1);
   await page.screenshot({path:path.join(directory,'after-upgrade.png'),fullPage:true});
-  const report={passed:true,from:before.version,to:after.version,transport:live?'live public GitHub provider':'loopback HTTP candidate feed; public GitHub not yet published',realWindowsInstaller:true,corruptPayloadRejected:!live,automaticRestartObserved:true,userDataPreserved:true,sourcePreserved:true,modelFolderSentinelPreserved:true,realModelWeightsTested:false,captionCutsSettingsPreserved:true,renderedDuration:rendered.project.output.duration,downloadRequests:served,build:process.env.LOCALCUT_CANDIDATE_SHA,harness:process.env.GITHUB_SHA};
+  const report={passed:true,from:before.version,to:after.version,fiveSecondSeekPassed:true,transport:live?'live public GitHub provider':'loopback HTTP candidate feed; public GitHub not yet published',realWindowsInstaller:true,corruptPayloadRejected:!live,automaticRestartObserved:true,userDataPreserved:true,sourcePreserved:true,modelFolderSentinelPreserved:true,realModelWeightsTested:false,captionCutsSettingsPreserved:true,renderedDuration:rendered.project.output.duration,downloadRequests:served,build:process.env.LOCALCUT_CANDIDATE_SHA,harness:process.env.GITHUB_SHA};
   await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
  }finally{if(app)await app.close();await new Promise(resolve=>server.close(resolve));}
 }

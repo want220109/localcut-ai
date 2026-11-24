@@ -8,7 +8,7 @@ on:
         description: Published stable release tag
         required: true
 permissions:
-  contents: read
+  contents: write
   actions: read
 jobs:
   upgrade:
@@ -22,12 +22,13 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-python@v5
         with:
-          name: LocalCut-AI-Windows-x64
-          path: previous
-          run-id: '44018941776'
-          github-token: ${{ github.token }}
+          python-version: '3.12'
+      - name: Fetch verified baseline installer
+        run: python scripts/prepare-upgrade-base.py
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Verify published release and install previous client
         shell: pwsh
         env:
@@ -41,8 +42,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Published build provenance missing' }
           $verified = Get-Content candidate/update-verification.json -Raw -Encoding utf8 | ConvertFrom-Json
           if ($env:TAG -ne "v$($verified.installer.version)" -or -not $verified.upgrade.passed) { throw 'Published build verification mismatch' }
-          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.0-x64-Setup.exe).Path
-          if ((Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'a3f7bdb0c3ac06f501142c8b098dc53bbcc883e19fb20f8240e591ff9d1dcba8') { throw 'Previous installer mismatch' }
+          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.3-x64-Setup.exe).Path
+          if ((Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3ecd6c88394cc72ff1ff4a48569b0e7a7a1acc5c93add3532f6b7598e40e67dc') { throw 'Previous installer mismatch' }
           $process = Start-Process $old -ArgumentList '/S' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Previous version installation failed' }
           "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA\Programs\LocalCut AI\LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -53,6 +54,7 @@ jobs:
         env:
           LOCALCUT_CANDIDATE_DIR: candidate
           LOCALCUT_LIVE_GITHUB: '1'
+          LOCALCUT_BASE_VERSION: '0.2.3'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
