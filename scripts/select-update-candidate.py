@@ -13,10 +13,16 @@ run=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/actions/runs/{
 if run["conclusion"]!="success" or run["path"]!=".github/workflows/windows.yml" or run["head_repository"]["full_name"]!=repo or run["head_branch"]!="main":
     raise SystemExit("Untrusted or failed build")
 sha=run["head_sha"]
+if os.environ.get("GITHUB_EVENT_NAME")=="workflow_run":
+    current=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/branches/main"]))["commit"]["sha"]
+    if current!=sha:
+        with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as output:output.write("ready=false\n")
+        print("Skipped superseded Windows build",sha)
+        raise SystemExit(0)
 file=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/contents/package.json?ref={sha}"]))
 version=json.loads(base64.b64decode(file["content"]))["version"]
 if not re.fullmatch(r"\d+\.\d+\.\d+",version):
     raise SystemExit("This preparation workflow handles stable builds only")
 with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as output:
-    output.write(f"sha={sha}\nrun={run_id}\nversion={version}\n")
+    output.write(f"ready=true\nsha={sha}\nrun={run_id}\nversion={version}\n")
 print("Verified candidate",version,sha,run_id)

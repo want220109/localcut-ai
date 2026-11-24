@@ -19,6 +19,10 @@ test('local video range responses match actual bytes and allow seeking',async t=
   assert.equal(response.status,206);assert.equal(response.headers.get('content-range'),contentRange);
   assert.equal(Number(response.headers.get('content-length')),expected.length);assert.equal(await response.text(),expected);
  }
+ const bytes=Buffer.from(Array.from({length:200000},(_,i)=>i%251));
+ const large=await fixture(t,bytes);
+ const partial=await mediaResponse(large,new Request('http://local/video',{headers:{Range:'bytes=60000-150000'}}));
+ assert.deepEqual(Buffer.from(await partial.arrayBuffer()),bytes.subarray(60000,150001),'A multi-chunk seek must preserve every byte');
 });
 test('invalid local ranges are rejected and HEAD contains no payload',async t=>{
  const file=await fixture(t);

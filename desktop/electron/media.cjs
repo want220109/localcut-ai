@@ -31,7 +31,7 @@ async function mediaResponse(filename,request){
   headers['Content-Length']=String(Math.max(0,end-start+1));
   if(partial)headers['Content-Range']=`bytes ${start}-${end}/${stat.size}`;
   if(request.method==='HEAD'||stat.size===0){await handle.close();return new Response(null,{status:partial?206:200,headers});}
-  const body=Readable.toWeb(handle.createReadStream({start,end,autoClose:true}));
+  const body=Readable.toWeb(handle.createReadStream({start,end,autoClose:true}),{strategy:{highWaterMark:64*1024,size:chunk=>chunk.byteLength}});
   return new Response(body,{status:partial?206:200,headers});
  }catch(error){await handle.close().catch(()=>{});throw error;}
 }
