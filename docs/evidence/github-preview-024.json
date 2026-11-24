@@ -1,0 +1,75 @@
+{
+  "version": "0.2.4",
+  "sourceCommit": "68ed43fa950f6bf8bcf2a4bd7a1ce1e9b687cf3a",
+  "harnessCommit": "0f2a0c29feacf52e18576e03cd6e01e4a602d01f",
+  "changes": [
+    "Original and rendered preview five-second backward/forward buttons",
+    "Local media 206 byte ranges and bounded streaming"
+  ],
+  "local": {
+    "pythonTests": 64,
+    "nodeTests": 8,
+    "electronPassed": true,
+    "frozenEnginePassed": true
+  },
+  "windows": {
+    "runId": 45310107033,
+    "passed": true,
+    "pythonTests": 63,
+    "nodeTests": 8,
+    "installedPreviewSeekPassed": true,
+    "sourceAndExportPreserved": true,
+    "installerArtifactId": 14882981825,
+    "artifactSha256": "2542dae61a31849b524cd5c637587c346b0935c2de000a22fdf34a295b508d76"
+  },
+  "upgrade": {
+    "runId": 45311516436,
+    "jobId": 138168187498,
+    "passed": true,
+    "from": "0.2.3",
+    "to": "0.2.4",
+    "fiveSecondSeekPassed": true,
+    "transport": "loopback HTTP candidate feed; public GitHub not yet published",
+    "realWindowsInstaller": true,
+    "corruptPayloadRejected": true,
+    "automaticRestartObserved": true,
+    "userDataPreserved": true,
+    "sourcePreserved": true,
+    "modelFolderSentinelPreserved": true,
+    "realModelWeightsTested": false,
+    "captionCutsSettingsPreserved": true,
+    "renderedDuration": 5,
+    "downloadRequests": 2,
+    "build": "68ed43fa950f6bf8bcf2a4bd7a1ce1e9b687cf3a",
+    "harness": "0f2a0c29feacf52e18576e03cd6e01e4a602d01f",
+    "artifactId": 14882924391,
+    "artifactSha256": "d9b5844fe12e5246b7051e2b0c296d6656b6512eccf3b867aa47a7ab7809d806"
+  },
+  "release": {
+    "id": 456232058,
+    "tag": "v0.2.4",
+    "draft": true,
+    "published": false,
+    "assetCount": 18,
+    "allAssetsVerified": true,
+    "url": "https://github.com/want220109/localcut-ai/releases/tag/untagged-078518f783368dd317f3",
+    "target": "68ed43fa950f6bf8bcf2a4bd7a1ce1e9b687cf3a",
+    "ownerTargetBranch": "release/v0.2.4",
+    "installerBytes": 368351297,
+    "installerSha256": "sha256:fabe07b0c65e195648d27b13d86febe2882d5a11ea37c0c7484d8b50f30700cd",
+    "verificationRunId": 45311516436,
+    "finalizationRunId": 45312343103,
+    "noLargeSourceTransferArtifactCreated": true
+  },
+  "scope": {
+    "userPcTested": false,
+    "livePublicGitHubUpgradeTested": false,
+    "realAsrTested": false,
+    "cudaTested": false,
+    "paidApiUsed": false
+  },
+  "notes": {
+    "firstUpgradeHarnessFailure": "45310870204: mixed Windows separators prevented process detection; normalized the test executable path and reran against the same installer",
+    "remoteLinuxCi": "45310107049: package installation remained in progress when Windows release validation finished"
+  }
+}

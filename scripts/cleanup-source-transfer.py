@@ -13,6 +13,10 @@ def api(endpoint):
 run=api(f"actions/runs/{run_id}")
 if run["conclusion"]!="success" or run["path"]!=".github/workflows/prepare-update.yml" or run["head_repository"]["full_name"]!=repo:
     raise SystemExit("Only completed, trusted transfer runs may be cleaned")
+jobs=api(f"actions/runs/{run_id}/jobs")["jobs"]
+if any(job["name"]=="draft" and job["conclusion"]=="skipped" for job in jobs):
+    print("Skipped finalization: this preparation run did not stage a draft")
+    raise SystemExit(0)
 artifacts=api(f"actions/runs/{run_id}/artifacts")["artifacts"]
 transfers=[artifact for artifact in artifacts if artifact["name"]=="release-source-companions"]
 releases=api("releases?per_page=100")

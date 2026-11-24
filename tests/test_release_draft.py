@@ -56,3 +56,25 @@ def test_draft_retry_resolves_release_id_and_preserves_existing_assets(tmp_path,
         assert "repos/example/localcut/releases/7" in requests
         assert "unpublished" in (tmp_path/"summary.md").read_text().lower()
     assert not any("/tags/" in request for request in requests)
+
+
+def test_source_cleanup_skips_preparation_that_did_not_stage_a_draft(monkeypatch):
+    script=Path(__file__).resolve().parents[1]/"scripts/cleanup-source-transfer.py"
+    monkeypatch.setenv("GITHUB_REPOSITORY","example/localcut")
+    monkeypatch.setenv("TRANSFER_RUN","123")
+    requests=[]
+    def read(args,**_kwargs):
+        endpoint=args[2];requests.append(endpoint)
+        if endpoint=="repos/example/localcut/actions/runs/123":
+            return json.dumps({"conclusion":"success","path":".github/workflows/prepare-update.yml","head_repository":{"full_name":"example/localcut"}}).encode()
+        if endpoint=="repos/example/localcut/actions/runs/123/jobs":
+            return json.dumps({"jobs":[{"name":"draft","conclusion":"skipped"}]}).encode()
+        raise AssertionError("No release or artifact lookup is needed for a skipped draft")
+    def no_write(*_args,**_kwargs):
+        raise AssertionError("Skipped preparation must not mutate GitHub")
+    monkeypatch.setattr(subprocess,"check_output",read)
+    monkeypatch.setattr(subprocess,"run",no_write)
+    with pytest.raises(SystemExit) as result:
+        runpy.run_path(str(script),run_name="__main__")
+    assert result.value.code==0
+    assert len(requests)==2
