@@ -24,7 +24,7 @@ async function until(check,label,timeout=120000){
 async function main(){
  assert.equal(process.platform,'win32','Use an isolated Windows runner');
  assert.equal(process.env.GITHUB_ACTIONS,'true','Never run an installer-upgrade fixture on a personal PC');
- const exe=process.env.LOCALCUT_TEST_INSTALLED_EXE;
+ const exe=path.resolve(process.env.LOCALCUT_TEST_INSTALLED_EXE);
  const version=process.env.LOCALCUT_CANDIDATE_VERSION||require('../package.json').version;
  const live=process.env.LOCALCUT_LIVE_GITHUB==='1';
  const baseline=process.env.LOCALCUT_BASE_VERSION||'0.2.0';
