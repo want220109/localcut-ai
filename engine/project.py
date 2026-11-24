@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 
-from subtitles.styles import AUTOMATIC_SIZES, with_defaults, validate_style
+from subtitles.styles import AUTOMATIC_SIZES, FONT_SIZE_LIMITS, with_defaults, validate_style
 
 SCHEMA = 1
 ID_RE = re.compile(r"^[a-f0-9]{32}$")
@@ -57,7 +57,7 @@ def validate(p):
                 raise ValueError("삭제 구간 상태가 잘못되었습니다.")
     settings = p["settings"] = with_defaults(p["settings"])
     validate_style(settings)
-    finite(settings["fontSize"], 18, 100)
+    finite(settings["fontSize"], FONT_SIZE_LIMITS["min"], FONT_SIZE_LIMITS["max"])
     finite(settings["outline"], 0, 6)
     finite(settings["zoom"], 1, 1.2)
     if settings["resolution"] not in {"source", "720", "1080"} or settings["aspect"] not in {"source", "16:9", "9:16", "1:1"}:

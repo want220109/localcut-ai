@@ -31,6 +31,8 @@ with tempfile.TemporaryDirectory(prefix="localcut-frozen-") as temporary:
     preset=json.loads((ROOT/"subtitles"/"presets.json").read_text(encoding="utf-8"))["presets"][0]
     call("edit",id=p["id"],changes={"settings":{**preset["settings"],"subtitlePreset":preset["id"]},
                                    "captions":[{"id":"font-test","start":0,"end":2,"text":"한국어 자막 글꼴 검증"}]})
+    frame=call("captionFrame",id=p["id"],draft={"id":"font-test","start":0,"end":2,"text":"한국어 자막 미리보기"})
+    assert frame["image"].startswith("data:image/png;base64,iVBORw0KGgo") and frame["sourceTime"]==1
     result=call("render",id=p["id"])
     assert Path(result["project"]["output"]["path"]).is_file()
     log=Path(result["project"]["output"]["path"]).with_name("ffmpeg.log").read_text(encoding="utf-8")

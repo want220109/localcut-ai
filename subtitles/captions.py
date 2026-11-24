@@ -32,7 +32,7 @@ def generate(transcript, style="basic", settings=None):
     return result
 
 
-def remap(captions, intervals):
+def remap(captions, intervals, *, include_ids=False):
     result, offset = [], 0.0
     for a,b in intervals:
         for c in captions:
@@ -51,7 +51,10 @@ def remap(captions, intervals):
                     continue
                 text = "\n".join(normalize(row) for row in c["text"].replace("\r\n","\n").replace("\r","\n").split("\n") if row.strip())
             if text:
-                result.append({"start": offset+start-a, "end": offset+end-a, "text":text})
+                cue={"start": offset+start-a, "end": offset+end-a, "text":text}
+                if include_ids:
+                    cue["id"]=c["id"]
+                result.append(cue)
         offset += b-a
     result.sort(key=lambda c:c["start"])
     for left,right in zip(result,result[1:]):

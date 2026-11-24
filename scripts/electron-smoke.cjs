@@ -87,6 +87,28 @@ async function main(){
   await page.evaluate(id=>window.localcut.call('edit',{id,changes:{captions:[{id:'caption-fixture',start:.2,end:1.5,text:'오늘 영상의 핵심을 보여드립니다'}]}}),p.id);
   await page.reload();
   await page.getByRole('button',{name:/실제 테스트/}).click();
+  await page.getByRole('button',{name:/^자막 수정 /}).click();
+  await page.getByRole('button',{name:/오늘 영상의 핵심을 보여드립니다/}).click();
+  const frame=page.getByRole('img',{name:'현재 자막과 출력 설정을 적용한 정지 화면',exact:true});
+  await frame.waitFor();
+  const firstFrame=await frame.getAttribute('src');
+  await page.getByLabel('자막 내용',{exact:true}).fill('미리 보는 수정 자막');
+  await page.waitForFunction(previous=>{
+   const image=document.querySelector('.caption-frame-image img');
+   return image?.src!==previous&&image?.complete&&image.naturalWidth>0;
+  },firstFrame);
+  const editedFrame=await frame.getAttribute('src');
+  await sizeField.selectOption('160');
+  await page.waitForFunction(previous=>{
+   const image=document.querySelector('.caption-frame-image img');
+   return image?.src!==previous&&image?.complete&&image.naturalWidth>0;
+  },editedFrame);
+  const previewOnly=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
+  assert.equal(previewOnly.project.settings.fontSize,160);
+  assert.equal(previewOnly.project.captions[0].text,'오늘 영상의 핵심을 보여드립니다','Preview must not save the draft');
+  assert.equal(previewOnly.project.output,null,'Preview must not render an MP4');
+  await page.getByRole('button',{name:/^편집 구간 /}).click();
+  console.log('Caption still preview, unsaved editing and 160px size passed');
   await page.getByLabel('자막 프리셋').selectOption('shorts_pop');
   await page.waitForFunction(()=>!document.querySelector('[aria-label="자막 프리셋"]').disabled);
   const styled=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);

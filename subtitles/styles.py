@@ -12,6 +12,7 @@ from pathlib import Path
 CATALOG=json.loads(Path(__file__).with_name("presets.json").read_text(encoding="utf-8"))
 DEFAULTS=CATALOG["defaults"]
 AUTOMATIC_SIZES=CATALOG["automaticSizes"]
+FONT_SIZE_LIMITS=CATALOG["fontSizeLimits"]
 FONTS=CATALOG["fonts"]
 PRESETS={p["id"]:p for p in CATALOG["presets"]}
 

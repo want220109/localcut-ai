@@ -20,3 +20,11 @@
 .export-feedback span{min-width:0;overflow-wrap:anywhere}
 .export-feedback.saved strong{color:var(--accent)}
 .export-feedback.error{color:#ffad9d;background:#3a231f}
+
+.caption-frame{margin:16px 0 10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:#11141a}
+.caption-frame figcaption{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;font-size:12px}
+.caption-frame figcaption span,.caption-frame-status,.caption-frame-image span{color:#b8c2d2;font-size:11px}
+.caption-frame-image{display:grid;place-items:center;min-height:106px;border-radius:4px;background:#080a0d;overflow:hidden}
+.caption-frame-image img{display:block;max-width:100%;max-height:min(55vh,410px);width:auto;height:auto;object-fit:contain}
+.caption-frame-status:not(:empty){margin-top:8px}
+.caption-frame-status[role=alert]{color:#ffad9d}

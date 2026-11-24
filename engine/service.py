@@ -39,6 +39,9 @@ def dispatch(request, progress=lambda percent,message:None):
         p["preview"]=compatible_preview(p["source"],store.directory(p["id"]),progress)
         return store.save(p)
     p=store.load(request["id"])
+    if action=="captionFrame":
+        from media.caption_frame import caption_frame
+        return caption_frame(p, request["draft"])
     if action=="get":
         return {"project":p,"audit":transcript_audit(p)}
     if action=="edit":

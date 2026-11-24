@@ -5,6 +5,7 @@
     "blackhan": {"label": "Black Han Sans · 두꺼운 제목체", "family": "Black Han Sans", "css": "LocalCut Black Han", "file": "BlackHanSans-Regular.ttf"}
   },
   "automaticSizes": {"standard": 64, "portrait": 80},
+  "fontSizeLimits": {"min": 18, "max": 160},
   "defaults": {
     "captionSizeMode": "manual",
     "subtitlePreset": "legacy", "fontFamily": "malgun", "fontBold": true,

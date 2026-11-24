@@ -1,4 +1,5 @@
 import copy
+import base64
 import hashlib
 import json
 import re
@@ -10,6 +11,7 @@ import pytest
 
 from engine.project import Store, atomic_json
 from media.render import render
+from media.caption_frame import caption_frame
 from media.tools import binary, probe
 from subtitles.captions import ass, generate, remap, srt
 from subtitles.styles import DEFAULTS, PRESETS, caption_lines, font_directory, layout, preset_settings, selected_font, validate_style
@@ -122,6 +124,52 @@ def solid_video(tmp_path_factory):
     subprocess.run([binary("ffmpeg"),"-v","error","-y","-f","lavfi","-i","color=c=0x181c24:size=640x360:rate=24:duration=1",
                     "-c:v","libx264","-threads","2","-pix_fmt","yuv420p",str(path)],check=True)
     return path
+
+
+@pytest.mark.integration
+def test_caption_frame_shows_unsaved_text_at_the_larger_size_without_changing_project(tmp_path,solid_video):
+    import cv2
+
+    store=Store(tmp_path)
+    project=store.create(probe(solid_video))
+    project_id=project["id"]
+    saved={"id":"caption","start":0.1,"end":0.9,"text":"원본 자막"}
+    project=store.edit(project_id,{"captions":[saved],"settings":preset_settings("youtube_clean")})
+    draft={**saved,"text":"수정 중인 자막"}
+
+    def pixels(frame):
+        data=base64.b64decode(frame["image"].split(",",1)[1])
+        return cv2.imdecode(np.frombuffer(data,dtype=np.uint8),cv2.IMREAD_COLOR)
+
+    original=caption_frame(project,saved)
+    edited=caption_frame(project,draft)
+    assert original["sourceTime"]==edited["sourceTime"]==0.5
+    assert not np.array_equal(pixels(original),pixels(edited))
+
+    bigger=store.edit(project_id,{"settings":{"fontSize":160}})
+    large=pixels(caption_frame(bigger,draft))
+    normal=pixels(edited)
+    assert large.shape==normal.shape==(360,640,3)
+    assert np.count_nonzero(np.all(large>180,axis=2))>np.count_nonzero(np.all(normal>180,axis=2))
+    assert store.load(project_id)["captions"]==[saved]
+    assert bigger["output"] is None
+
+    updated=store.edit(project_id,{"captions":[{**draft,"textEdited":True}]})
+    output=render(updated,store.directory(project_id),lambda *_:None)
+    decoded=subprocess.check_output([binary("ffmpeg"),"-v","error","-ss","0.5","-i",output["path"],
+                                     "-frames:v","1","-pix_fmt","bgr24","-f","rawvideo","pipe:1"])
+    exported=np.frombuffer(decoded,dtype=np.uint8).reshape(large.shape)
+    preview_ink=np.all(large>180,axis=2)
+    export_ink=np.all(exported>180,axis=2)
+    assert np.count_nonzero(preview_ink & export_ink)/np.count_nonzero(preview_ink | export_ink)>.9
+
+    cut={"id":"cut","start":0.3,"end":0.7,"enabled":True,"review":False}
+    trimmed=store.edit(project_id,{"cuts":[cut]})
+    retained=caption_frame(trimmed,draft)
+    assert retained["message"] is None
+    assert retained["sourceTime"]<0.3 or retained["sourceTime"]>=0.7
+    removed=caption_frame(trimmed,{**draft,"start":0.35,"end":0.65})
+    assert "표시되지 않습니다" in removed["message"]
 
 
 @pytest.mark.integration

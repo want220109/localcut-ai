@@ -48,19 +48,38 @@ def dimensions(p):
     return w,h
 
 
+def video_framing(settings, index, duration, width, height):
+    # Alternate punch-in only after a cut, the same for the still and MP4.
+    zoom = settings["zoom"] if index % 2 and duration >= 2 else 1
+    filters = ["setsar=1"]
+    if zoom > 1:
+        filters.append(f"crop=w=trunc(iw/{zoom}/2)*2:h=trunc(ih/{zoom}/2)*2")
+    filters.extend([f"scale={width}:{height}:force_original_aspect_ratio=increase", f"crop={width}:{height}", "format=yuv420p"])
+    return ",".join(filters)
+
+
+def subtitle_filter(settings):
+    _, font_file = selected_font(settings)
+    return "ass=filename=captions.ass" + (":fontsdir=fonts" if font_file else "")
+
+
+def write_ass(captions, settings, width, height, directory):
+    fallback = "Malgun Gothic" if sys.platform == "win32" else "Noto Sans CJK KR"
+    (directory/"captions.ass").write_text(ass(captions,settings,width,height,fallback),encoding="utf-8")
+    if settings["subtitles"] and captions:
+        _, font_file = selected_font(settings)
+        if font_file:
+            (directory/"fonts").mkdir()
+            shutil.copyfile(font_file,directory/"fonts"/font_file.name)
+
+
 def build_graph(p, intervals, width, height):
     settings=p["settings"]
     has_audio=p["source"]["hasAudio"]
     fps=p["source"]["fps"]
     graph=[]
     for i,(a,b) in enumerate(intervals):
-        # Only introduce a punch-in after an actual cut; alternate conservatively.
-        zoom=settings["zoom"] if i%2 and b-a>=2 else 1
-        vf=f"trim=start={a:.8f}:end={b:.8f},setpts=PTS-STARTPTS,fps={fps:.8f},setsar=1"
-        if zoom>1:
-            vf+=f",crop=w=trunc(iw/{zoom}/2)*2:h=trunc(ih/{zoom}/2)*2"
-        # Fill output aspect from the center. UI explains that vertical output crops edges.
-        vf+=f",scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},format=yuv420p"
+        vf=f"trim=start={a:.8f}:end={b:.8f},setpts=PTS-STARTPTS,fps={fps:.8f},"+video_framing(settings,i,b-a,width,height)
         graph.append(f"[0:v:0]{vf}[v{i}]")
         if has_audio:
             length=b-a
@@ -70,8 +89,7 @@ def build_graph(p, intervals, width, height):
     labels="".join(f"[v{i}][a{i}]" if has_audio else f"[v{i}]" for i in range(len(intervals)))
     graph.append(labels+f"concat=n={len(intervals)}:v=1:a={1 if has_audio else 0}[joinedv]"+("[joineda]" if has_audio else ""))
     if settings["subtitles"] and p["captions"]:
-        _,font_file=selected_font(settings)
-        graph.append("[joinedv]ass=filename=captions.ass"+(":fontsdir=fonts" if font_file else "")+"[outv]")
+        graph.append("[joinedv]"+subtitle_filter(settings)+"[outv]")
     else:
         graph.append("[joinedv]null[outv]")
     if has_audio:
@@ -98,12 +116,7 @@ def render(p, directory, progress):
     output.mkdir()
     captions=remap(p["captions"],intervals)
     (output/"captions.srt").write_text(srt(captions),encoding="utf-8-sig")
-    (output/"captions.ass").write_text(ass(captions,p["settings"],width,height,"Malgun Gothic" if sys.platform=="win32" else "Noto Sans CJK KR"),encoding="utf-8")
-    if p["settings"]["subtitles"] and captions:
-        _,font_file=selected_font(p["settings"])
-        if font_file:
-            (output/"fonts").mkdir()
-            shutil.copyfile(font_file,output/"fonts"/font_file.name)
+    write_ass(captions,p["settings"],width,height,output)
     (output/"filters.txt").write_text(build_graph(p,intervals,width,height),encoding="utf-8")
     tmp=output/"edited.partial.mp4"
     crf={"high":"18","balanced":"21","small":"26"}[p["settings"]["quality"]]

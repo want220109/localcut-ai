@@ -1,14 +1,16 @@
 import re
 
+from subtitles.styles import FONT_SIZE_LIMITS
+
 
 def interpret(p, text):
     if not isinstance(text,str) or len(text)>500:
         raise ValueError("수정 요청은 500자 이내로 입력해 주세요.")
     compact=re.sub(r"\s+","",text)
     if re.search(r"자막.*(크게|키워|확대)",compact):
-        return {"settings":{"fontSize":min(100,p["settings"]["fontSize"]+8)}},"자막 크기를 키웠습니다. 다시 출력하면 반영됩니다."
+        return {"settings":{"fontSize":min(FONT_SIZE_LIMITS["max"],p["settings"]["fontSize"]+8)}},"자막 크기를 키웠습니다. 다시 출력하면 반영됩니다."
     if re.search(r"자막.*(작게|줄여|축소)",compact):
-        return {"settings":{"fontSize":max(18,p["settings"]["fontSize"]-8)}},"자막 크기를 줄였습니다."
+        return {"settings":{"fontSize":max(FONT_SIZE_LIMITS["min"],p["settings"]["fontSize"]-8)}},"자막 크기를 줄였습니다."
     if re.search(r"(줌|확대).*(줄여|끄|없애)",compact):
         return {"settings":{"zoom":1.0}},"줌 효과를 껐습니다."
     if re.search(r"(잘라낸|삭제|대화).*(살려|복원|되돌려)",compact):
