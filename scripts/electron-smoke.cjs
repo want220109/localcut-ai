@@ -27,6 +27,15 @@ async function checkSeekButtons(page,panel,label){
  await page.locator(selector).evaluate(v=>{v.pause();v.currentTime=0;});
  console.log(label+' five-second seek: clamp, keyboard and playback state passed');
 }
+async function expectRevealed(app,expected){
+ await app.evaluate(async (_electron,filename)=>{
+  for(let attempt=0;attempt<100;attempt++){
+   if(globalThis.__revealedExport===filename)return;
+   await new Promise(resolve=>setTimeout(resolve,25));
+  }
+  throw new Error('Explorer did not receive the expected file: '+filename);
+ },expected);
+}
 async function main(){
  const root=path.resolve(__dirname,'..');
  const testRoot=path.join(root,'test-results',process.env.LOCALCUT_PACKAGED_EXE?'installed-electron':'electron');await fs.mkdir(testRoot,{recursive:true});
@@ -112,12 +121,35 @@ async function main(){
   const exportTarget=path.join(testRoot,'최신 편집 저장.mp4');
   await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},exportTarget);
   await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
-  await page.locator('.banner.success').filter({hasText:exportTarget}).waitFor({timeout:60000});
+  await page.locator('.export-feedback.saved').filter({hasText:exportTarget}).waitFor({timeout:60000});
   const latest=await page.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(latest.project.output.revision!==latest.project.revision || Math.abs(latest.project.output.duration-6)>.2 || latest.project.output.path===result.project.output.path)throw new Error('Stale output was exported');
   if(latest.audit.cutSummary.appliedCount!==0 || latest.audit.cutSummary.removedDuration!==0)throw new Error('Cut summary did not reflect restoration');
   const digest=data=>crypto.createHash('sha256').update(data).digest('hex');
   if(digest(await fs.readFile(exportTarget))!==digest(await fs.readFile(latest.project.output.path)))throw new Error('Saved file is not the latest output');
+  await app.evaluate(({shell})=>{shell.showItemInFolder=filename=>{globalThis.__revealedExport=filename;};});
+  await page.getByRole('button',{name:'저장한 파일 위치',exact:true}).click();
+  await expectRevealed(app,exportTarget);
+  const unavailable=path.join(testRoot,'missing-save-folder','export.mp4');
+  await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},unavailable);
+  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+  await page.locator('.export-feedback.error').filter({hasText:'선택한 저장 위치를 찾을 수 없습니다.'}).waitFor();
+  await page.getByRole('button',{name:'출력 파일 위치',exact:true}).click();
+  await expectRevealed(app,latest.project.output.path);
+  const noExtension=path.join(testRoot,'확장자 보완 '+Date.now());
+  await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async(_window,options)=>{
+   globalThis.__saveDefault=options.defaultPath;return {canceled:false,filePath:filename};
+  };},noExtension);
+  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+  await page.locator('.export-feedback.saved').filter({hasText:noExtension+'.mp4'}).waitFor();
+  assert.equal(digest(await fs.readFile(noExtension+'.mp4')),digest(await fs.readFile(exportTarget)));
+  const {defaultPath,downloads}=await app.evaluate(({app})=>({defaultPath:globalThis.__saveDefault,downloads:app.getPath('downloads')}));
+  assert.equal(path.dirname(defaultPath),downloads);
+  // A derived filename did not receive the OS dialog's overwrite confirmation.
+  await fs.writeFile(noExtension+'.mp4','existing export');
+  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+  await page.locator('.export-feedback.error').filter({hasText:'같은 이름의 파일이 있습니다.'}).waitFor();
+  assert.equal(await fs.readFile(noExtension+'.mp4','utf8'),'existing export');
   const originalHash=sourceOriginalHash;
   // Original-file protection is enforced by main, even for direct IPC requests.
   await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},sample);
@@ -132,7 +164,7 @@ async function main(){
   await app.evaluate(()=>globalThis.__saveWaiter({canceled:true}));
   if(await pendingSave!==null)throw new Error('Canceled save was not canceled');
   if(digest(await fs.readFile(sample))!==originalHash)throw new Error('Original video changed');
-  console.log('Latest-revision export, source protection, canceled save and edit lock passed');
+  console.log('Latest-revision export, inline failure and recovery, extension handling, source protection, canceled save and edit lock passed');
   await page.screenshot({path:path.join(testRoot,'02-project.png'),fullPage:true});
   // Renderer cannot navigate the Electron window to remote code.
   if(errors.length)throw new Error('Renderer errors: '+errors.join('; '));

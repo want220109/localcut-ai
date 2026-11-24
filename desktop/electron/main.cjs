@@ -1,6 +1,7 @@
 const {app,BrowserWindow,ipcMain,dialog,protocol,shell} = require('electron');
 const {spawn} = require('node:child_process');
 const fs = require('node:fs/promises');
+const {COPYFILE_EXCL} = require('node:fs').constants;
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {mediaResponse} = require('./media.cjs');
@@ -11,6 +12,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'local-media',privileges:{standard
 app.setName('LocalCut AI');
 let window, busy=false, updateController;
 const grants=new Map();
+const savedExports=new Map();
 const dataRoot=path.join(app.getPath('userData'),'workspace');
 const projectRoot=path.resolve(__dirname,'../..');
 const rendererFile=path.join(__dirname,'../renderer/index.html');
@@ -67,6 +69,50 @@ async function importVideo(filename) {
   if(!validMedia(filename)) throw new Error('MP4, MOV, AVI, MKV 영상만 불러올 수 있습니다.');
   return decorate(await engine({action:'create',source:await fs.realpath(filename)}));
 }
+async function statIfPresent(filename) {
+  try {return await fs.stat(filename);}
+  catch(error) {if(error.code!=='ENOENT') throw error;return null;}
+}
+
+function samePath(a,b) {
+  return process.platform==='win32' ? a.toLowerCase()===b.toLowerCase() : a===b;
+}
+
+async function copyExport(source,output,chosen,extension) {
+  const hasExtension=chosen.toLowerCase().endsWith(extension);
+  const target=hasExtension?chosen:chosen+extension;
+  if(samePath(target,path.resolve(source))) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
+  const [sourceStat,targetStat]=await Promise.all([statIfPresent(source),statIfPresent(target)]);
+  if(sourceStat?.ino && targetStat && sourceStat.dev===targetStat.dev && sourceStat.ino===targetStat.ino) {
+    throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
+  }
+  if(samePath(target,output)) return output;
+  try {
+    // Use a sibling temporary file before replacing an approved destination.
+    // A name changed after the dialog never overwrites an existing file.
+    if(!hasExtension) {
+      await fs.copyFile(output,target,COPYFILE_EXCL);
+    } else {
+      const temporary=path.join(path.dirname(target),'.localcut-save-'+crypto.randomUUID()+'.tmp');
+      try {
+        await fs.copyFile(output,temporary,COPYFILE_EXCL);
+        await fs.rename(temporary,target);
+      } finally {
+        await fs.rm(temporary,{force:true}).catch(()=>{});
+      }
+    }
+  } catch(error) {
+    if(error.code==='ENOSPC'||error.code==='EDQUOT') throw new Error('저장 공간이 부족합니다. 여유 공간이 있는 폴더를 선택해 주세요.');
+    if(error.code==='EACCES'||error.code==='EPERM'||error.code==='EBUSY'||error.code==='EROFS') throw new Error('선택한 위치에 쓸 수 없습니다. 파일을 열어 둔 프로그램을 닫거나 다운로드 폴더를 선택해 주세요.');
+    if(error.code==='EEXIST') throw new Error('같은 이름의 파일이 있습니다. 확장자를 포함한 파일 이름을 선택하거나 새 이름으로 저장해 주세요.');
+    if(error.code==='ENOENT') throw new Error('선택한 저장 위치를 찾을 수 없습니다. 다운로드 폴더를 선택해 주세요.');
+    throw error;
+  }
+  const written=await fs.stat(target);
+  if(!written.isFile()||written.size===0) throw new Error('저장한 파일을 확인하지 못했습니다. 출력 파일 위치에서 결과를 확인해 주세요.');
+  return target;
+}
+
 async function request(event,message) {
   if(event.sender!==window?.webContents || !trustedSender(event.senderFrame?.url||'',rendererFile,devUrl)) throw new Error('허용하지 않는 요청입니다.');
   if(!message || typeof message.action!=='string') throw new Error('잘못된 요청입니다.');
@@ -107,8 +153,16 @@ async function request(event,message) {
     // Otherwise an edit during the dialog could export an obsolete result.
     busy=true;
     try {
+      const exportKey=`${id}:${kind}`;
+      if(action==='reveal' && message.saved===true) {
+        const saved=savedExports.get(exportKey);
+        if(!saved||!(await statIfPresent(saved))?.isFile()) throw new Error('저장한 파일을 찾을 수 없습니다. 출력 파일 위치를 확인해 주세요.');
+        shell.showItemInFolder(saved);
+        return true;
+      }
+      if(action==='export') savedExports.delete(exportKey);
       let {project:p}=await engine({action:'get',id},false);
-      if(!p.output || p.output.revision!==p.revision) {
+      if(action==='export' && (!p.output || p.output.revision!==p.revision)) {
         ({project:p}=await engine({action:'render',id},false));
       }
       if(!p.output || p.output.revision!==p.revision) throw new Error('최신 편집 결과를 출력하지 못했습니다. 다시 시도해 주세요.');
@@ -116,17 +170,18 @@ async function request(event,message) {
       const real=await fs.realpath(filename);
       if(!inside(await fs.realpath(path.join(dataRoot,'jobs',id)),real)) throw new Error('작업 폴더 밖의 파일을 내보낼 수 없습니다.');
       if(action==='reveal') {shell.showItemInFolder(real);return true;}
-      const extension=path.extname(real).slice(1);
-      const r=await dialog.showSaveDialog(window,{defaultPath:p.name+(extension==='mp4'?'-편집':'')+'.'+extension,filters:[{name:extension.toUpperCase(),extensions:[extension]}]});
-      if(r.canceled) return null;
-      const target=path.resolve(r.filePath);
-      // Protect the original even if a user selects it in the Save dialog (including hard links).
-      const sourceStat=await fs.stat(p.source.path);
-      let targetStat;try {targetStat=await fs.stat(target);}catch(err){if(err.code!=='ENOENT')throw err;}
-      if(target===path.resolve(p.source.path) || (targetStat && targetStat.dev===sourceStat.dev && targetStat.ino===sourceStat.ino)) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
-      if(target===real) return target;
-      await fs.copyFile(real,target);
-      return target;
+      const extension=path.extname(real);
+      const name=p.name.replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'')||'LocalCut';
+      const suggestion=name+(extension==='.mp4'?'-편집':'')+extension;
+      const r=await dialog.showSaveDialog(window,{
+        title:extension.slice(1).toUpperCase()+' 저장',
+        defaultPath:path.join(app.getPath('downloads'),suggestion),
+        filters:[{name:extension.slice(1).toUpperCase(),extensions:[extension.slice(1)]}]
+      });
+      if(r.canceled||!r.filePath) return null;
+      const saved=await copyExport(p.source.path,real,path.resolve(r.filePath),extension);
+      savedExports.set(exportKey,saved);
+      return saved;
     } finally {busy=false;}
   }
   throw new Error('지원하지 않는 요청입니다.');

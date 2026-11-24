@@ -54,7 +54,7 @@ jobs:
           path: candidate
           run-id: ${{ needs.candidate.outputs.run }}
           github-token: ${{ github.token }}
-      - name: Fetch and verify installed 0.2.4 baseline
+      - name: Fetch and verify installed 0.2.5 baseline
         run: python scripts/prepare-upgrade-base.py
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,14 +63,14 @@ jobs:
         run: |
           python scripts/verify-update-assets.py candidate/release '${{ needs.candidate.outputs.version }}'
           if ($LASTEXITCODE -ne 0) { throw 'Candidate package failed verification' }
-          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.4-x64-Setup.exe).Path
+          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.5-x64-Setup.exe).Path
           $installed = Start-Process $old -ArgumentList '/S' -Wait -PassThru
           if ($installed.ExitCode -ne 0) { throw 'Previous app installation failed' }
           "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA/Programs/LocalCut AI/LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Test upgrade from the public 0.2.4 installer
+      - name: Test upgrade from the public 0.2.5 installer
         run: node scripts/test-installed-upgrade.cjs
         env:
-          LOCALCUT_BASE_VERSION: '0.2.4'
+          LOCALCUT_BASE_VERSION: '0.2.5'
           LOCALCUT_CANDIDATE_DIR: candidate
           LOCALCUT_CANDIDATE_SHA: ${{ needs.candidate.outputs.sha }}
           LOCALCUT_CANDIDATE_VERSION: ${{ needs.candidate.outputs.version }}

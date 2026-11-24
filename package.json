@@ -1,6 +1,6 @@
 {
   "name": "localcut-ai",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "로컬 우선 AI 자동 영상 편집기",
   "author": "LocalCut contributors",
