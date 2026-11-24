@@ -101,7 +101,12 @@ async function main(){
   const after=await page.evaluate(()=>window.localcut.call('health'));assert.equal(after.version,version);
   assert.equal(await app.evaluate(({app})=>app.getPath('userData')),data);
   const saved=await page.evaluate(id=>window.localcut.call('get',{id}),project.id);
-  for(const key of ['captions','cuts','settings'])assert.deepEqual(saved.project[key],edited.project[key],key+' must be preserved');
+  for(const key of ['captions','cuts'])assert.deepEqual(saved.project[key],edited.project[key],key+' must be preserved');
+  const previousSettings={...edited.project.settings};
+  if(saved.project.settings.captionSizeMode!==undefined&&previousSettings.captionSizeMode===undefined){
+   previousSettings.captionSizeMode='manual';
+  }
+  assert.deepEqual(saved.project.settings,previousSettings,'Saved subtitle size and other settings must be preserved');
   assert.equal(await hash(sample),sourceHash);assert.equal(await hash(sentinel),modelHash);
   const rendered=await page.evaluate(id=>window.localcut.call('render',{id}),project.id);
   assert.ok(Math.abs(rendered.project.output.duration-5)<0.2,'Upgraded engine must render preserved cut');
