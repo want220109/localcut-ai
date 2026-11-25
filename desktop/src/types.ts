@@ -26,6 +26,7 @@ export interface Audit {before:string;after:string;removed:{id:string;text:strin
 export interface Model {id:string;label:string;sizeMB:number;ready:boolean}
 export interface Health {version:string;models:Model[];cpuNote:string}
 export interface History {id:string;name:string;updatedAt:number;analyzed:boolean}
+export interface HistoryLists {recent:History[];hidden:History[]}
 export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
 export interface ProjectResult {project:Project;audit:Audit;message?:string}

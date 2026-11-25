@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,History,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,Settings,TranscriptOperation,Update} from './types';
+import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,Settings,TranscriptOperation,Update} from './types';
 import './styles.css';
 import {SubtitleControls} from './SubtitleControls';
 import {EditSummary} from './EditSummary';
@@ -38,7 +38,8 @@ function Icon({name,size=20}:{name:string;size?:number}) {
 }
 function App(){
  const [project,setProject]=useState<Project|null>(null),[audit,setAudit]=useState<Audit|null>(null);
- const [health,setHealth]=useState<Health|null>(null),[history,setHistory]=useState<History[]>([]);
+ const [health,setHealth]=useState<Health|null>(null),[history,setHistory]=useState<HistoryLists>({recent:[],hidden:[]});
+ const [viewHidden,setViewHidden]=useState(false);
  const [busy,setBusy]=useState(false),[progress,setProgress]=useState<Progress>({percent:0,message:''});
  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[tab,setTab]=useState<'cuts'|'captions'|'transcript'|'longform'>('cuts');
  const [mp4Save,setMp4Save]=useState<Mp4Save|null>(null);
@@ -49,7 +50,7 @@ function App(){
  const [manualStart,setManualStart]=useState('0'),[manualEnd,setManualEnd]=useState('1');
  const sourceVideo=useRef<HTMLVideoElement>(null),outputVideo=useRef<HTMLVideoElement>(null);
  async function call<T>(action:string,data:Record<string,unknown>={}):Promise<T>{if(!bridge)throw new Error('Electron 데스크톱 앱으로 실행해 주세요. 브라우저 미리보기에서는 로컬 파일 기능을 사용할 수 없습니다.');return await bridge.call(action,data) as T;}
- async function refresh(){const [h,list,u]=await Promise.all([call<Health>('health'),call<History[]>('history'),call<Update>('updateStatus')]);setHealth(h);setHistory(list);setUpdate(u);}
+ async function refresh(){const [h,list,u]=await Promise.all([call<Health>('health'),call<HistoryLists>('historyLists'),call<Update>('updateStatus')]);setHealth(h);setHistory(list);setUpdate(u);}
  useEffect(()=>{
   if(!bridge)return;
   const off=bridge.onProgress(setProgress),offUpdate=bridge.onUpdate(setUpdate);
@@ -60,8 +61,14 @@ function App(){
  useEffect(()=>setConnection(null),[project?.id,project?.revision,tab]);
  function accept(result:ProjectResult|Project){if('project' in result){setProject(result.project);setAudit(result.audit);if(result.message)setNotice(result.message);}else{setProject(result);setAudit(null);}}
  async function task(fn:()=>Promise<void>){if(busy)return;setBusy(true);setError('');setNotice('');setProgress({percent:0,message:'준비 중'});try{await fn();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
- async function load(){await task(async()=>{const p=await call<Project|ProjectResult|null>('pick');if(p){accept(p);setHistory(await call<History[]>('history'));}});}
+ async function load(){await task(async()=>{const p=await call<Project|ProjectResult|null>('pick');if(p){accept(p);setViewHidden(false);setHistory(await call<HistoryLists>('historyLists'));}});}
  async function open(id:string){await task(async()=>{accept(await call<ProjectResult>('get',{id}));});}
+ async function changeHistory(operation:'hide'|'restore'|'clear'|'restoreAll',id?:string){
+  await task(async()=>{
+   setHistory(await call<HistoryLists>('changeHistory',{operation,id}));
+   setNotice(operation==='restore'||operation==='restoreAll'?'최근 작업 목록에 복원했습니다.':'목록에서 숨겼습니다. 숨긴 작업에서 복원할 수 있습니다.');
+  });
+ }
  async function edit(changes:Record<string,unknown>){if(!project)return;await task(async()=>{accept(await call<ProjectResult>('edit',{id:project.id,changes}));});}
  async function changeSequence(action:string,fields:Record<string,unknown>){
   if(!project||busy)return false;
@@ -96,7 +103,7 @@ function App(){
   });
  }
  async function setting<K extends keyof Settings>(key:K,value:Settings[K]){const custom=['fontSize','color','outline','background','position'].includes(key);await edit({settings:{[key]:value,...(custom?{subtitlePreset:'custom'}:{})}});}
- async function operate(action:string){if(!project)return;await task(async()=>{accept(await call<ProjectResult>(action,{id:project.id,model}));if(action==='analyze'||action==='undo')setDirtyCaption(null);setHistory(await call<History[]>('history'));});}
+ async function operate(action:string){if(!project)return;await task(async()=>{accept(await call<ProjectResult>(action,{id:project.id,model}));if(action==='analyze'||action==='undo')setDirtyCaption(null);setHistory(await call<HistoryLists>('historyLists'));});}
  async function analyze(){if(!project)return;if(project.analyzed&&!window.confirm('재분석하면 현재 편집 구간과 자막 수정이 새 분석 결과로 바뀝니다. 계속할까요?'))return;await operate('analyze');}
  async function createLongform(targetSeconds:number){
   if(!project)return null;
@@ -105,7 +112,7 @@ function App(){
    const result=await call<LongformResult>('longformDraft',{id:project.id,targetSeconds,model});
    if(result.project&&result.audit){
     accept({project:result.project,audit:result.audit});
-    setHistory(await call<History[]>('history'));
+    setHistory(await call<HistoryLists>('historyLists'));
    }
    draft=result.draft;
   });
@@ -149,7 +156,7 @@ function App(){
  }
  async function updateAction(operation:string,channel?:string){await task(async()=>{setUpdate(await call<Update>('update',{operation,channel}));});}
  async function installModel(importModel=false){await task(async()=>{await call('model',{model,consent:!importModel,import:importModel});await refresh();setNotice('모델 준비가 완료되었습니다. 이제 인터넷 없이 분석할 수 있습니다.');});}
- async function drop(e:React.DragEvent){e.preventDefault();setDrag(false);const files=Array.from(e.dataTransfer.files);if(!files.length||!bridge||busy)return;await task(async()=>{accept(files.length===1?await bridge.dropped(files[0]):await bridge.droppedFiles(files));setHistory(await call<History[]>('history'));});}
+ async function drop(e:React.DragEvent){e.preventDefault();setDrag(false);const files=Array.from(e.dataTransfer.files);if(!files.length||!bridge||busy)return;await task(async()=>{accept(files.length===1?await bridge.dropped(files[0]):await bridge.droppedFiles(files));setViewHidden(false);setHistory(await call<HistoryLists>('historyLists'));});}
  function seek(value:number){if(sourceVideo.current)sourceVideo.current.currentTime=value;setSourceTime(value);}
  async function toggle(c:Cut){if(project)await edit({cuts:project.cuts.map(x=>x.id===c.id?{...x,enabled:!x.enabled}:x)});}
  async function changeBounds(c:Cut,key:'start'|'end',value:string){const number=Number(value);if(!project||!Number.isFinite(number))return;await edit({cuts:project.cuts.map(x=>x.id===c.id?{...x,[key]:number,review:true,reason:'사용자가 편집 구간을 조정함'}:x)});}
@@ -162,6 +169,7 @@ function App(){
  const defaultCaptionSize=subtitleCatalog.automaticSizes.standard;
  const captionSize=p?.settings.fontSize??defaultCaptionSize;
  const automaticCaptionSize=!p||p.settings.captionSizeMode==='auto';
+ const historyItems=viewHidden?history.hidden:history.recent;
  const resultPanel=(<div className="panel result-panel"><div className="section-title"><h2><span className="number-label">02</span> 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
        {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
        <div className="result-footer"><div><span>예상 완성 길이</span><strong>{p?time(outDuration):'--:--'} {removed>0&&<small>−{time(removed)}</small>}</strong></div><div className="button-row">
@@ -179,11 +187,27 @@ function App(){
    <a className="brand" href="#" onClick={e=>e.preventDefault()}><span className="brand-mark"><Icon name="cut" size={23}/></span><span>LocalCut<span className="brand-ai">AI</span></span></a>
    <div className="workspace-label">나의 편집 공간</div>
    <button className="nav-item active" onClick={()=>setSettingsOpen(false)}><Icon name="film"/>자동 영상 편집<span className="nav-dot"/></button>
-   <button className="nav-item" onClick={()=>document.getElementById('history')?.scrollIntoView({behavior:'smooth'})}><Icon name="folder"/>최근 작업</button>
+   <button className="nav-item" onClick={()=>{setViewHidden(false);document.getElementById('history')?.scrollIntoView({behavior:'smooth'});}}><Icon name="folder"/>최근 작업</button>
    <button className={'nav-item '+(settingsOpen?'selected':'')} onClick={()=>setSettingsOpen(!settingsOpen)}><Icon name="settings"/>모델 · 업데이트</button>
    <div className="sidebar-divider"/>
-   <div className="history-heading" id="history">최근 작업 <span>{history.length}</span></div>
-   <div className="history-list">{history.length?history.map(h=><button key={h.id} disabled={disabled} onClick={()=>open(h.id)} className={'history-item '+(p?.id===h.id?'current':'')}><Icon name="film" size={16}/><span>{h.name}<small>{new Date(h.updatedAt*1000).toLocaleDateString('ko-KR')} · {h.analyzed?'분석 완료':'새 작업'}</small></span></button>):<p className="history-empty">첫 영상을 불러오면<br/>작업이 여기에 저장됩니다.</p>}</div>
+   <div className="history-heading" id="history">{viewHidden?'숨긴 작업':'최근 작업'} <span>{historyItems.length}</span></div>
+   <div className="history-actions">
+    {viewHidden?<><button className="quiet" onClick={()=>setViewHidden(false)}>최근 작업 보기</button>
+      {!!history.hidden.length&&<button className="quiet" disabled={disabled} onClick={()=>changeHistory('restoreAll')}>모두 복원</button>}</>:
+     <><button className="quiet" onClick={()=>setViewHidden(true)}>숨긴 작업 {history.hidden.length?`(${history.hidden.length})`:''}</button>
+      {!!history.recent.length&&<button className="quiet" disabled={disabled}
+       onClick={()=>changeHistory('clear')}>목록 비우기</button>}</>}
+   </div>
+   <div className="history-list" aria-label={viewHidden?'숨긴 작업 목록':'최근 작업 목록'} role="region">
+    {historyItems.length?historyItems.map(h=><div key={h.id} className="history-row">
+     {viewHidden?<span className="history-hidden-name" title={h.name}>{h.name}</span>:
+      <button disabled={disabled} onClick={()=>open(h.id)} className={'history-item '+(p?.id===h.id?'current':'')} title={h.name}>
+       <Icon name="film" size={16}/><span>{h.name}<small>{new Date(h.updatedAt*1000).toLocaleDateString('ko-KR')} · {h.analyzed?'분석 완료':'새 작업'}</small></span>
+      </button>}
+     <button className="quiet history-action" disabled={disabled} onClick={()=>changeHistory(viewHidden?'restore':'hide',h.id)}
+      aria-label={h.name+(viewHidden?' 복원':' 목록에서 제거')} title={viewHidden?'최근 작업에 복원':'목록에서 제거'}>{viewHidden?'복원':'×'}</button>
+    </div>):<p className="history-empty">{viewHidden?'숨긴 작업이 없습니다.':'최근 작업이 없습니다.'}</p>}
+   </div>
    <div className="local-note"><span className="local-dot"/>내 PC에서 안전하게<small>원본 영상은 업로드되지 않습니다.</small><div><Icon name="shield" size={14}/> LOCAL FIRST</div></div>
    <div className="version">LocalCut AI <span>v{health?.version||appVersion}</span></div>
   </aside>

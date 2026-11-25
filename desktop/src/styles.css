@@ -99,3 +99,9 @@
 .sequence-output{display:flex;align-items:center;gap:18px}
 .sequence-actions{justify-content:flex-end;margin-top:12px}
 @media(max-width:1060px){.sequence-workspace{grid-template-columns:minmax(0,1fr)}}
+
+.history-actions{display:flex;justify-content:space-between;gap:7px;margin:-8px 14px 9px}
+.history-row{display:flex;align-items:center;gap:4px;min-width:0}
+.history-row .history-item{flex:1;min-width:0}
+.history-action{flex-shrink:0;min-width:23px;padding:6px}
+.history-hidden-name{flex:1;min-width:0;margin:8px 0 8px 12px;color:#a2aab8;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

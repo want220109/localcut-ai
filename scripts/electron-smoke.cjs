@@ -41,7 +41,7 @@ async function checkLongform(app,page,sample,testRoot){
  await fs.copyFile(sample,source);
  const {id}=await page.evaluate(file=>window.localcut.call('import',{path:file}),source);
  await page.reload();
- await page.getByRole('button',{name:/롱폼 편집 검증/}).click();
+ await page.locator('.history-item').filter({hasText:'롱폼 편집 검증'}).click();
  await page.getByRole('button',{name:'유튜브 롱폼 초벌 편집',exact:true}).click();
  const frame=page.getByRole('region',{name:'유튜브 롱폼 초벌 편집',exact:true});
  const generate=frame.getByRole('button',{name:'초벌 편집안 만들기',exact:true});
@@ -68,7 +68,7 @@ async function checkLongform(app,page,sample,testRoot){
  project.captions[0]={...project.captions[0],text:'오늘은 부산에 왔습니다',textEdited:true};
  project.cuts=[{id:'ambient',start:4,end:4.65,kind:'speech_gap',reason:'현장음 확인 후보',confidence:.6,review:true,enabled:false}];
  await fs.writeFile(projectPath,JSON.stringify(project),'utf8');
- await page.getByRole('button',{name:/롱폼 편집 검증/}).click();
+ await page.locator('.history-item').filter({hasText:'롱폼 편집 검증'}).click();
  await frame.getByLabel('목표 길이 (초)').fill('5.2');
  await generate.click();
  await frame.getByText('오늘은 부산에 왔습니다',{exact:true}).waitFor().catch(async error=>{
@@ -200,10 +200,40 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  assert.ok((await fs.stat(savedFile)).size>1000);
  assert.deepEqual(await Promise.all(paths.map(hash)),before);
  await page.reload();
- await page.getByRole('button',{name:/여행-도착 외 2개/}).click();
+ await page.locator('.history-item').filter({hasText:'여행-도착 외 2개'}).click();
  await sequence.getByText('2/3개 포함 · 편집 순서',{exact:true}).waitFor();
  assert.deepEqual(await order(),clips.map(clip=>clip.name));
  console.log('Multi-file picker, capture order, drag and keyboard order, excluded clip, original and join preview, MP4 save, source guards and persistence passed');
+}
+async function checkRecentHistory(page){
+ const work='여행-도착 외 2개';
+ const recent=page.getByRole('region',{name:'최근 작업 목록',exact:true});
+ const hidden=page.getByRole('region',{name:'숨긴 작업 목록',exact:true});
+ const previous=await page.evaluate(()=>window.localcut.call('historyLists'));
+ const sequence=previous.recent.find(item=>item.name===work);
+ const before=await page.evaluate(id=>window.localcut.call('get',{id}),sequence.id);
+ await recent.getByRole('button',{name:work+' 목록에서 제거',exact:true}).click();
+ await recent.locator('.history-item').filter({hasText:work}).waitFor({state:'detached'});
+ await page.getByRole('region',{name:'여러 원본 편집',exact:true}).waitFor();
+ await page.reload();
+ await page.getByRole('button',{name:'숨긴 작업 (1)',exact:true}).click();
+ await hidden.getByRole('button',{name:work+' 복원',exact:true}).click();
+ await hidden.getByText('숨긴 작업이 없습니다.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'최근 작업 보기',exact:true}).click();
+ await recent.locator('.history-item').filter({hasText:work}).click();
+ const after=await page.evaluate(id=>window.localcut.call('get',{id}),sequence.id);
+ assert.equal(after.project.revision,before.project.revision);
+ assert.deepEqual(after.project.output,before.project.output);
+ assert.deepEqual(after.project.clips,before.project.clips);
+ await page.getByRole('button',{name:'목록 비우기',exact:true}).click();
+ await recent.getByText('최근 작업이 없습니다.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'숨긴 작업 ('+previous.recent.length+')',exact:true}).click();
+ await hidden.getByRole('button',{name:work+' 복원',exact:true}).waitFor();
+ await page.getByRole('button',{name:'모두 복원',exact:true}).click();
+ await hidden.getByText('숨긴 작업이 없습니다.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'최근 작업 보기',exact:true}).click();
+ assert.equal(await recent.locator('.history-item').count(),previous.recent.length);
+ console.log('Recent job hide, reload, restore, clear all and restore all preserve projects and output');
 }
 async function main(){
  const root=path.resolve(__dirname,'..');
@@ -230,7 +260,7 @@ async function main(){
   const p=await page.evaluate(file=>window.localcut.call('import',{path:file}),sample);
   // A real imported project is then selected through the user's history UI.
   await page.reload();
-  await page.getByRole('button',{name:/실제 테스트/}).click();
+  await page.locator('.history-item').filter({hasText:'실제 테스트'}).click();
   await page.getByText('실제 테스트',{exact:true}).first().waitFor();
   const sizeField=page.getByLabel('자막 크기',{exact:true});
   await sizeField.locator('option:checked').filter({hasText:'자동 · 64px'}).waitFor({state:'attached'});
@@ -255,7 +285,7 @@ async function main(){
   await page.getByText('분석 결과가 준비되었습니다').waitFor({timeout:30000});
   await page.evaluate(id=>window.localcut.call('edit',{id,changes:{captions:[{id:'caption-fixture',start:.2,end:1.5,text:'오늘 영상의 핵심을 보여드립니다'}]}}),p.id);
   await page.reload();
-  await page.getByRole('button',{name:/실제 테스트/}).click();
+  await page.locator('.history-item').filter({hasText:'실제 테스트'}).click();
   await page.getByRole('button',{name:/^자막 수정 /}).click();
   await page.getByRole('button',{name:/오늘 영상의 핵심을 보여드립니다/}).click();
   const frame=page.getByRole('img',{name:'현재 자막과 출력 설정을 적용한 정지 화면',exact:true});
@@ -366,14 +396,15 @@ async function main(){
   const reopened=await app.firstWindow({timeout:30000});reopened.setDefaultTimeout(30000);
   reopened.on('pageerror',e=>errors.push(e.message));
   console.log('Reopened window ready');
-  await reopened.getByRole('button',{name:/실제 테스트/}).click();
+  await reopened.locator('.history-item').filter({hasText:'실제 테스트'}).click();
   await reopened.locator('video').first().waitFor();
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
   await checkLongform(app,reopened,sample,testRoot);
   await checkSequence(app,reopened,ffmpeg,testRoot);
+  await checkRecentHistory(reopened);
   assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } catch(error){
   console.error(error);

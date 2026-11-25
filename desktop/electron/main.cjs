@@ -128,6 +128,13 @@ async function request(event,message) {
   const {action}=message;
   if(action==='health') return engine({action:'health'},false);
   if(action==='history') return engine({action:'list'},false);
+  if(action==='historyLists') return engine({action:'history'},false);
+  if(action==='changeHistory') {
+    const {operation}=message;
+    if(!['hide','restore','clear','restoreAll'].includes(operation)) throw new Error('지원하지 않는 최근 작업 관리 요청입니다.');
+    const id=operation==='hide'||operation==='restore'?projectId(message.id):undefined;
+    return engine({action,operation,id});
+  }
   if(action==='pick') {
     if(busy) throw new Error('현재 작업을 마친 후 영상을 불러와 주세요.');
     const r=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'영상',extensions:['mp4','mov','avi','mkv']}]});

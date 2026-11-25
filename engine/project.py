@@ -230,7 +230,16 @@ class Store:
             p["settings"].update(aspect="16:9", resolution="1080", denoise=False, normalize=False)
         return self.save(p)
 
-    def list(self):
+    def _hidden_history_ids(self):
+        try:
+            ids = json.loads((self.root / "recent-hidden.json").read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return set()
+        if not isinstance(ids, list) or any(not isinstance(value, str) or not ID_RE.fullmatch(value) for value in ids):
+            raise ValueError("최근 작업 목록 설정을 읽을 수 없습니다.")
+        return set(ids)
+
+    def history(self):
         result = []
         for f in (self.root / "jobs").glob("*/project.json"):
             try:
@@ -238,7 +247,33 @@ class Store:
                 result.append({k: p[k] for k in ("id", "name", "updatedAt", "analyzed")})
             except (ValueError, OSError, KeyError, TypeError):
                 continue
-        return sorted(result, key=lambda p: p["updatedAt"], reverse=True)
+        hidden = self._hidden_history_ids()
+        lists = {"recent": [], "hidden": []}
+        for item in sorted(result, key=lambda p: p["updatedAt"], reverse=True):
+            lists["hidden" if item["id"] in hidden else "recent"].append(item)
+        return lists
+
+    def list(self):
+        return self.history()["recent"]
+
+    def change_history(self, operation, project_id=None):
+        hidden = self._hidden_history_ids()
+        previous = hidden.copy()
+        if operation == "clear":
+            hidden.update(item["id"] for item in self.list())
+        elif operation == "restoreAll":
+            hidden.clear()
+        elif operation in {"hide", "restore"}:
+            self.load(project_id)
+            if operation == "hide":
+                hidden.add(project_id)
+            else:
+                hidden.discard(project_id)
+        else:
+            raise ValueError("지원하지 않는 최근 작업 관리 요청입니다.")
+        if hidden != previous:
+            atomic_json(self.root / "recent-hidden.json", sorted(hidden))
+        return self.history()
 
     def edit(self, project_id, changes):
         p = self.load(project_id)

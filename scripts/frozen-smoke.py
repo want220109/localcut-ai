@@ -26,6 +26,9 @@ with tempfile.TemporaryDirectory(prefix="localcut-frozen-") as temporary:
     subprocess.run([health["ffmpeg"],"-v","error","-y","-f","lavfi","-i","testsrc2=size=320x180:rate=24:duration=3",
                     "-c:v","libx264","-threads","2","-pix_fmt","yuv420p",str(source)],check=True)
     p=call("create",source=str(source))
+    hidden=call("changeHistory",operation="hide",id=p["id"])
+    assert not hidden["recent"] and hidden["hidden"][0]["id"]==p["id"]
+    assert call("changeHistory",operation="restore",id=p["id"])["recent"][0]["id"]==p["id"]
     # No speech model is fetched by smoke tests. Visual analysis still loads native OpenCV.
     result=call("analyze",id=p["id"])
     assert result["project"]["analyzed"]

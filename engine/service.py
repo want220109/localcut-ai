@@ -33,6 +33,10 @@ def dispatch(request, progress=lambda percent,message:None):
         return install(store.root,request["model"],progress,request.get("importDir"))
     if action=="list":
         return store.list()
+    if action=="history":
+        return store.history()
+    if action=="changeHistory":
+        return store.change_history(request.get("operation"), request.get("id"))
     if action=="create":
         from media.preview import compatible_preview
         p=store.create(probe(request["source"]))
