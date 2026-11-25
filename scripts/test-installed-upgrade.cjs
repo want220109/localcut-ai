@@ -110,7 +110,7 @@ async function main(){
   assert.equal(await hash(sample),sourceHash);assert.equal(await hash(sentinel),modelHash);
   const rendered=await page.evaluate(id=>window.localcut.call('render',{id}),project.id);
   assert.ok(Math.abs(rendered.project.output.duration-5)<0.2,'Upgraded engine must render preserved cut');
-  await page.getByRole('button',{name:/업데이트 원본/}).click();
+  await page.locator('.history-item').filter({hasText:'업데이트 원본'}).click();
   await page.locator('.source-panel .preview-seek-controls button:not(:disabled)').first().waitFor();
   await page.getByRole('button',{name:'원본 영상 5초 앞으로',exact:true}).click();
   await page.waitForFunction(()=>Math.abs(document.querySelector('.source-panel video').currentTime-5)<.1);
