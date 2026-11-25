@@ -69,6 +69,58 @@ def edit_sequence(project, rows):
         project.update(clips=clips, sortOrder="manual")
 
 
+
+def needs_captions(clip):
+    return not clip["analyzed"] and not clip["captions"]
+
+
+def check_model(store, model):
+    from models.manager import ready
+    if not ready(store.root, model, verify=True):
+        raise ValueError("모델 · 업데이트에서 한국어 음성 모델을 먼저 설치해 주세요.")
+
+
+def analyze_clip(store, project, clip, model, progress, *, model_checked=False):
+    source = clip["source"]
+    verify_source(source)
+    if source["hasAudio"]:
+        from engine.analysis import transcribe
+        from subtitles.captions import generate
+        if not model_checked:
+            check_model(store, model)
+        transcript, _, result = transcribe(
+            source, store.root, model, store.directory(project["id"]), progress, model_verified=True,
+        )
+        clip["captions"] = generate(transcript, "basic", project["settings"])
+        clip["model"] = result
+    clip["analyzed"] = True
+
+
+def analyze_sequence(store, project, request, progress):
+    require_revision(project, request.get("revision"))
+    pending = [clip for clip in project["clips"] if clip["enabled"] and needs_captions(clip)]
+    model = request["model"]
+    if any(clip["source"]["hasAudio"] for clip in pending):
+        progress(0, "한국어 음성 모델 확인 중")
+        check_model(store, model)
+    completed, failures = 0, []
+    for index, clip in enumerate(pending, 1):
+        def report(percent, message):
+            progress(100 * (index - 1 + percent / 100) / len(pending),
+                     f"클립 {index}/{len(pending)} · {clip['name']} · {message}")
+        report(0, "영상 확인 중")
+        try:
+            analyze_clip(store, project, clip, model, report, model_checked=True)
+        except (ValueError, RuntimeError, OSError) as error:
+            failures.append(f"{clip['name']} · {error}")
+            continue
+        project["revision"] += 1
+        store.save(project, snapshot=completed == 0)
+        completed += 1
+        report(100, "자막 처리 완료")
+    return project, failures
+
+
 def sequence_action(store, project, request, progress):
     action = request["action"]
     if action == "render":
@@ -105,21 +157,9 @@ def sequence_action(store, project, request, progress):
                 return {"path": str(target)}
             return {"path": compatible_preview(source, directory, progress) or source["path"]}
         if action == "sequenceAnalyze":
-            from engine.analysis import transcribe
-            from models.manager import ready
-            from subtitles.captions import generate
-            if clip["analyzed"]:
+            if not needs_captions(clip):
                 return project
-            source = clip["source"]
-            verify_source(source)
-            if source["hasAudio"]:
-                model = request["model"]
-                if not ready(store.root, model, verify=True):
-                    raise ValueError("모델 · 업데이트에서 한국어 음성 모델을 먼저 설치해 주세요.")
-                transcript, _, result = transcribe(source, store.root, model, store.directory(project["id"]), progress)
-                clip["captions"] = generate(transcript, "basic", project["settings"])
-                clip["model"] = result
-            clip["analyzed"] = True
+            analyze_clip(store, project, clip, request["model"], progress)
         if action == "sequenceCaption":
             caption = next((cue for cue in clip["captions"] if cue["id"] == request.get("captionId")), None)
             text = request.get("text")

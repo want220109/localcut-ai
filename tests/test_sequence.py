@@ -64,6 +64,72 @@ def test_sorting_fallback_exclusion_stale_update_and_undo(tmp_path, files):
     assert call("undo", id=p["id"])["project"]["clips"] == p["clips"]
 
 
+def test_batch_captions_preserve_edits_and_skip_excluded_clips(tmp_path, files, monkeypatch):
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(path) for path in files])["project"]
+    red, portrait, green = project["clips"]
+    red["captions"] = [{"id": "c0", "start": .1, "end": .6, "text": "교정한 자막", "textEdited": True}]
+    green["enabled"] = False
+    Store(tmp_path).save(project)
+
+    def unexpected_model(*args, **kwargs):
+        pytest.fail("Silent clips and existing captions must bypass the model")
+
+    monkeypatch.setattr("models.manager.ready", unexpected_model)
+    result = call("sequenceAnalyzeAll", id=project["id"], revision=0, model="small")
+    assert not result["captionFailures"]
+    updated = result["project"]
+    assert updated["revision"] == 1
+    assert updated["clips"][0]["captions"] == red["captions"]
+    assert updated["clips"][1] == dict(portrait, analyzed=True)
+    assert updated["clips"][2] == green
+    assert call("sequenceAnalyzeAll", id=project["id"], revision=1, model="small")["project"] == updated
+
+
+def test_batch_captions_retry_retains_successful_clips(tmp_path, files, monkeypatch):
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(path) for path in files])["project"]
+    project["clips"][1]["source"]["hasAudio"] = True
+    Store(tmp_path).save(project)
+    requested, checked = [], []
+    fail_portrait = True
+
+    def ready(root, name, verify):
+        checked.append((name, verify))
+        return True
+
+    def transcribe(source, root, model, work, progress, *, model_verified):
+        assert model_verified
+        requested.append(source["path"])
+        if source["path"] == str(files[1]) and fail_portrait:
+            raise RuntimeError("오디오 실패")
+        return [{"id": "s1", "start": .2, "end": .8, "text": "음성을 인식했습니다", "confidence": .9}], [], {"name": model}
+
+    monkeypatch.setattr("models.manager.ready", ready)
+    monkeypatch.setattr("engine.analysis.transcribe", transcribe)
+    result = call("sequenceAnalyzeAll", id=project["id"], revision=0, model="small")
+    updated = Store(tmp_path).load(project["id"])
+    assert [clip["analyzed"] for clip in updated["clips"]] == [True, False, True]
+    assert result["captionFailures"] == [f"{files[1].name} · 오디오 실패"]
+    first_captions = updated["clips"][0]["captions"]
+    assert first_captions[0]["text"] == "음성을 인식했습니다"
+    assert checked == [("small", True)]
+
+    fail_portrait = False
+    result = call("sequenceAnalyzeAll", id=project["id"], revision=updated["revision"], model="small")
+    assert not result["captionFailures"]
+    assert all(clip["analyzed"] for clip in result["project"]["clips"])
+    assert result["project"]["clips"][0]["captions"] == first_captions
+    assert requested == list(map(str, (files[0], files[1], files[1])))
+    assert checked == [("small", True), ("small", True)]
+    undone = call("undo", id=project["id"])["project"]
+    assert undone["clips"] == updated["clips"]
+
+
 @pytest.mark.integration
 def test_caption_preview_uses_selected_clip_and_preserves_project(tmp_path, files):
     def call(action, **fields):

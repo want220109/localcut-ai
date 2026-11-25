@@ -66,8 +66,8 @@ def visual_analysis(source, duration, progress):
     return scenes, motion
 
 
-def transcribe(source, root, name, work, progress):
-    if not ready(root, name, verify=True):
+def transcribe(source, root, name, work, progress, *, model_verified=False):
+    if not model_verified and not ready(root, name, verify=True):
         raise ValueError("한국어 음성 모델이 없습니다. 설정에서 모델 다운로드에 동의하거나 오프라인 모델 폴더를 가져와 주세요.")
     import ctranslate2
     import numpy as np

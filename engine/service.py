@@ -58,6 +58,10 @@ def dispatch(request, progress=lambda percent,message:None):
                 raise ValueError("클립을 다시 선택해 주세요.")
         return caption_frame(p, request["draft"], clip=clip)
     if "clips" in p:
+        if action == "sequenceAnalyzeAll":
+            from engine.sequence import analyze_sequence
+            p, failures = analyze_sequence(store, p, request, progress)
+            return {"project": p, "audit": transcript_audit(p), "captionFailures": failures}
         if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption", "render"}:
             from engine.sequence import sequence_action
             result = sequence_action(store, p, request, progress)

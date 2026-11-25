@@ -141,7 +141,7 @@ async function checkTranscriptEdit(page,id,previousOutput){
 async function checkSequence(app,page,ffmpeg,testRoot){
  await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];window.focus();window.webContents.focus();});
  const clips=[
-  {name:'여행-출발.mp4',color:'red',size:'320x180',date:'2025-04-02T01:02:00Z',audio:true},
+  {name:'여행-출발.mp4',color:'red',size:'320x180',date:'2025-04-02T01:02:00Z',audio:false},
   {name:'여행-도착.mp4',color:'blue',size:'180x320',date:'2025-04-02T01:01:00Z',audio:false},
   {name:'여행-식사.mp4',color:'green',size:'320x180',date:'2025-04-02T01:03:00Z',audio:false},
  ];
@@ -161,7 +161,13 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  };},paths);
  await page.getByRole('button',{name:'영상 변경',exact:true}).click();
  const sequence=page.getByRole('region',{name:'여러 원본 편집',exact:true});
+ const steps=sequence.getByRole('navigation',{name:'여러 영상 작업 단계',exact:true});
+ const go=label=>steps.getByRole('button',{name:label+' 단계',exact:true}).click();
  const rows=sequence.locator('li[data-clip]');
+ await sequence.getByText('포함된 영상 0/3개 자막 처리 완료',{exact:true}).waitFor();
+ assert.equal(await steps.getByRole('button',{name:'자막 생성 단계',exact:true}).getAttribute('aria-current'),'step');
+ assert.equal(await sequence.getByRole('button',{name:'MP4 저장',exact:true}).count(),0);
+ await go('영상 불러오기');
  await sequence.getByText('3/3개 포함 · 촬영 시간순',{exact:true}).waitFor();
  const order=()=>rows.evaluateAll(items=>items.map(item=>item.dataset.clip));
  assert.deepEqual(await order(),[clips[1].name,clips[0].name,clips[2].name]);
@@ -176,21 +182,40 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  await exclude.click();
  await sequence.getByText('예상 길이 00:04.0',{exact:true}).waitFor();
  assert.equal(await exclude.isChecked(),false);
+ await sequence.getByRole('button',{name:'자막 생성으로',exact:true}).click();
+ await sequence.getByRole('button',{name:'포함된 영상 자막 만들기',exact:true}).click();
+ await sequence.getByText('포함된 영상 2/2개 자막 처리 완료',{exact:true}).waitFor();
+ const clipsAfterBatch=await page.evaluate(async()=>{
+  const history=await window.localcut.call('historyLists');
+  return (await window.localcut.call('get',{id:history.recent[0].id})).project.clips;
+ });
+ assert.deepEqual(clipsAfterBatch.map(clip=>clip.analyzed),[true,true,false]);
+ await sequence.getByText('인식된 음성이 없습니다.',{exact:true}).waitFor();
+ await sequence.getByRole('button',{name:'영상 편집으로',exact:true}).click();
  await sequence.locator('.sequence-name').filter({hasText:clips[1].name}).click();
  const source=sequence.locator('video[aria-label="선택한 원본 미리보기"]');
  await source.waitFor();
  await page.waitForFunction(()=>document.querySelector('.sequence-preview video')?.videoWidth===180,null,{timeout:10000});
- await sequence.getByRole('button',{name:'클립 자막 만들기',exact:true}).click();
- await sequence.getByText('인식된 음성이 없습니다.',{exact:true}).waitFor();
  await checkSequenceCaptions(app,page,clips);
  await sequence.locator('.sequence-name').filter({hasText:clips[0].name}).click();
  await sequence.getByRole('button',{name:'다음 클립 연결부 보기',exact:true}).click();
  const connection=sequence.locator('video[aria-label="클립 연결부 미리보기"]');
  await connection.waitFor().catch(async error=>{console.error(await page.getByRole('alert').allTextContents());throw error;});
  await page.waitForFunction(()=>Math.abs(document.querySelector('.sequence-preview video')?.duration-4)<.12,null,{timeout:10000});
+ await sequence.getByRole('button',{name:'설정 확인으로',exact:true}).click();
+ const frame=sequence.getByRole('img',{name:'현재 자막과 출력 설정을 적용한 정지 화면',exact:true});
+ await frame.waitFor();
+ const unstyled=await frame.getAttribute('src');
+ await sequence.getByLabel('자막 크기',{exact:true}).selectOption('144');
+ await page.waitForFunction(old=>{
+  const current=document.querySelector('.sequence-settings-preview img')?.getAttribute('src');
+  return !!current&&current!==old;
+ },unstyled,{timeout:15000});
+ await sequence.getByLabel('표시 위치',{exact:true}).selectOption('top');
+ await sequence.getByLabel('자막 글꼴',{exact:true}).selectOption('nanum');
  await sequence.getByLabel('가로 출력 해상도',{exact:true}).selectOption('720');
- await sequence.getByRole('button',{name:'MP4 출력',exact:true}).click();
- await page.locator('.result-panel .status-pill').filter({hasText:'출력 완료'}).waitFor({timeout:60000});
+ await sequence.getByRole('button',{name:'MP4 저장으로',exact:true}).click();
+ await sequence.getByText(/2개 영상 · 00:04.0 · 720p/).waitFor();
  const savedFile=path.join(testRoot,'여러 원본 완성.mp4');
  await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},paths[0]);
  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
@@ -199,12 +224,20 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
  await page.locator('.export-feedback.saved').getByText(savedFile,{exact:true}).waitFor();
  assert.ok((await fs.stat(savedFile)).size>1000);
+ const output=spawnSync(ffmpeg,['-hide_banner','-i',savedFile],{encoding:'utf8'}).stderr;
+ assert.match(output,/Duration: 00:00:04\.00/);
+ assert.match(output,/Video: h264[^\n]*1280x720/);
  assert.deepEqual(await Promise.all(paths.map(hash)),before);
  await page.reload();
  await page.locator('.history-item').filter({hasText:'여행-도착 외 2개'}).click();
+ await go('영상 편집');
  await sequence.getByText('2/3개 포함 · 편집 순서',{exact:true}).waitFor();
  assert.deepEqual(await order(),clips.map(clip=>clip.name));
- console.log('Multi-file picker, capture order, drag and keyboard order, excluded clip, original and join preview, MP4 save, source guards and persistence passed');
+ await go('설정 확인');
+ assert.equal(await sequence.getByLabel('자막 크기',{exact:true}).inputValue(),'144');
+ assert.equal(await sequence.getByLabel('표시 위치',{exact:true}).inputValue(),'top');
+ assert.equal(await sequence.getByLabel('자막 글꼴',{exact:true}).inputValue(),'nanum');
+ console.log('Multi-file stages, batch captions, clip order and inclusion, original and join preview, subtitle styles, unified MP4 save, source guards and persistence passed');
 }
 async function checkSequenceCaptions(app,page,clips){
  const history=await page.evaluate(()=>window.localcut.call('historyLists'));

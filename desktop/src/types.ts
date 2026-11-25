@@ -29,7 +29,7 @@ export interface History {id:string;name:string;updatedAt:number;analyzed:boolea
 export interface HistoryLists {recent:History[];hidden:History[]}
 export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
-export interface ProjectResult {project:Project;audit:Audit;message?:string}
+export interface ProjectResult {project:Project;audit:Audit;message?:string;captionFailures?:string[]}
 export type TranscriptOperation = 'exclude'|'restore';
 export interface CutPreview {
  video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];

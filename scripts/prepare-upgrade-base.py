@@ -1,4 +1,4 @@
-"""Download the verified 0.3.1 installer for isolated Windows upgrade tests."""
+"""Download the verified 0.3.2 installer for isolated Windows upgrade tests."""
 import hashlib
 import json
 import os
@@ -8,9 +8,9 @@ from pathlib import Path
 if os.environ.get("GITHUB_ACTIONS")!="true":
     raise SystemExit("This fixture runs only in GitHub Actions")
 repo=os.environ["GITHUB_REPOSITORY"]
-version="0.3.1"
+version="0.3.2"
 filename=f"LocalCut-AI-{version}-x64-Setup.exe"
-expected="a75c1f10edda1217136568230ecc6cf5f6d84ae285894f3f7491431ad7c78c75"
+expected="5b13f07f7e4a1519a19037c30483287282448f91fc70f6e90d9437c4c7ca790a"
 release=json.loads(subprocess.check_output(["gh","api",f"repos/{repo}/releases/tags/v{version}"]))
 asset=next((item for item in release["assets"] if item["name"]==filename), None)
 if release["draft"] or release["prerelease"] or not asset or asset.get("digest")!="sha256:"+expected:

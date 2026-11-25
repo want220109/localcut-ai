@@ -155,7 +155,7 @@ async function request(event,message) {
   if(action==='updateStatus') return updateController.state;
   if(action==='update') return updateController.action(message.operation,message.channel);
   const id=projectId(message.id);
-  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceCaption','sequenceConnection'].includes(action)) {
+  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceCaption','sequenceConnection'].includes(action)) {
     const {revision,rows,clipId,captionId,model,text}=message;
     if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
     if(action==='editSequence') {
@@ -163,6 +163,10 @@ async function request(event,message) {
          rows.some(row=>!row||typeof row.id!=='string'||!/^[a-f0-9]{32}$/.test(row.id)||typeof row.enabled!=='boolean'))
         throw new Error('클립 순서를 확인해 주세요.');
       return decorate(await engine({action,id,revision,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));
+    }
+    if(action==='sequenceAnalyzeAll') {
+      if(!['tiny','small'].includes(model)) throw new Error('지원하지 않는 모델입니다.');
+      return decorate(await engine({action,id,revision,model}));
     }
     projectId(clipId);
     if(action==='sequencePreview') {

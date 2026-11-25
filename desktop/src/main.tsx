@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,Settings,TranscriptOperation,Update} from './types';
 import './styles.css';
-import {SubtitleControls} from './SubtitleControls';
+import {BasicSubtitleControls,SubtitleControls} from './SubtitleControls';
 import {EditSummary} from './EditSummary';
 import {PreviewSeekControls} from './PreviewSeekControls';
 import {CaptionFramePreview} from './CaptionFramePreview';
@@ -74,7 +74,12 @@ function App(){
   if(!project||busy)return false;
   let saved=false;
   await task(async()=>{
-   accept(await call<ProjectResult>(action,{id:project.id,revision:project.revision,...fields}));
+   const result=await call<ProjectResult>(action,{id:project.id,revision:project.revision,...fields});
+   accept(result);
+   if(result.captionFailures?.length){
+    const first=result.captionFailures[0];
+    setError(`자막을 생성하지 못한 영상 ${result.captionFailures.length}개 · ${first}`);
+   }
    saved=true;
   });
   return saved;
@@ -102,7 +107,7 @@ function App(){
    }catch(error){setConnection({error:saveError(error)});}
   });
  }
- async function setting<K extends keyof Settings>(key:K,value:Settings[K]){const custom=['fontSize','color','outline','background','position'].includes(key);await edit({settings:{[key]:value,...(custom?{subtitlePreset:'custom'}:{})}});}
+ async function setting<K extends keyof Settings>(key:K,value:Settings[K]){await edit({settings:{[key]:value}});}
  async function operate(action:string){if(!project)return;await task(async()=>{accept(await call<ProjectResult>(action,{id:project.id,model}));if(action==='analyze'||action==='undo')setDirtyCaption(null);setHistory(await call<HistoryLists>('historyLists'));});}
  async function analyze(){if(!project)return;if(project.analyzed&&!window.confirm('재분석하면 현재 편집 구간과 자막 수정이 새 분석 결과로 바뀝니다. 계속할까요?'))return;await operate('analyze');}
  async function createLongform(targetSeconds:number){
@@ -166,15 +171,16 @@ function App(){
  const selectedModel=health?.models.find(m=>m.id===model),stale=!!p?.output&&p.output.revision!==p.revision;
  const disabled=busy||!bridge;
  const saveFeedback=mp4Save?.id===p?.id?mp4Save:null;
- const defaultCaptionSize=subtitleCatalog.automaticSizes.standard;
- const captionSize=p?.settings.fontSize??defaultCaptionSize;
- const automaticCaptionSize=!p||p.settings.captionSizeMode==='auto';
+ const subtitleSettings=p?.settings||({
+  ...subtitleCatalog.defaults,captionSizeMode:'auto',captionScale:'short-edge',fontSize:subtitleCatalog.automaticSizes.standard,
+  color:'#FFFFFF',outline:2,background:false,position:'bottom'
+ } as Settings);
  const historyItems=viewHidden?history.hidden:history.recent;
- const resultPanel=(<div className="panel result-panel"><div className="section-title"><h2><span className="number-label">02</span> 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
-       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
+ const resultPanel=(<div className="panel result-panel"><div className="section-title"><h2>{!p?.clips&&<span className="number-label">02</span>} 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
+       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.clips?'MP4 저장을 누르면 포함한 영상을 순서대로 합쳐 한 파일로 저장합니다.':p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
        <div className="result-footer"><div><span>예상 완성 길이</span><strong>{p?time(outDuration):'--:--'} {removed>0&&<small>−{time(removed)}</small>}</strong></div><div className="button-row">
         {!!p?.outputUrl&&!stale&&<button className="quiet" disabled={disabled} onClick={()=>revealMp4()}><Icon name="folder" size={15}/> 출력 파일 위치</button>}
-        <button className="secondary" disabled={disabled||!p} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':'MP4 저장'}</button>
+        <button className={p?.clips?"primary":"secondary"} disabled={disabled||!p} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':'MP4 저장'}</button>
        </div></div>
        {saveFeedback&&<div className={'export-feedback '+saveFeedback.state} role={saveFeedback.state==='error'?'alert':'status'}>
         {saveFeedback.state==='saved'&&<strong>MP4 저장 완료</strong>}
@@ -224,9 +230,11 @@ function App(){
       edit={async(rows:ClipSelection[])=>{await changeSequence('editSequence',{rows});}}
       preview={async id=>(await sequenceMedia<{url:string}>('sequencePreview',id))?.url??null}
       connection={id=>sequenceMedia<SequenceConnection>('sequenceConnection',id)}
+      analyzeAll={async()=>{await changeSequence('sequenceAnalyzeAll',{model});}}
+      modelReady={!!selectedModel?.ready} showModels={()=>{setSettingsOpen(true);window.scrollTo(0,0);}}
       analyze={async clipId=>{await changeSequence('sequenceAnalyze',{clipId,model});}}
       saveCaption={(clipId,caption)=>changeSequence('sequenceCaption',{clipId,captionId:caption.id,text:caption.text})}
-      setting={setting} render={()=>operate('render')} undo={()=>operate('undo')} replace={load} saveSubtitles={()=>save('srt')} result={resultPanel}/>
+      changeSettings={async settings=>{await edit({settings});}} render={()=>operate('render')} undo={()=>operate('undo')} replace={load} saveSubtitles={()=>save('srt')} result={resultPanel}/>
     :<>
     <div className="step-bar"><div className="step complete"><b>{p?<Icon name="check" size={13}/>:1}</b>영상 불러오기</div><span/><div className={'step '+(p?'complete':'')}><b>{p?.analyzed?<Icon name="check" size={13}/>:2}</b>AI 분석 · 편집</div><span/><div className={'step '+(p?.analyzed?'complete':'')}><b>3</b>검수 · 내보내기</div></div>
     <div className="editor-grid">
@@ -238,10 +246,8 @@ function App(){
      </section>
      <aside className="controls-column panel"><div className="section-title"><h2><Icon name="spark" size={18}/> 편집 설정</h2><span className="tag">AI ASSIST</span></div><div className="controls-body"><label className="field-label">어떤 분위기로 편집할까요?</label><div className="style-options">{([{id:'basic',title:'기본 편집',sub:'자연스러운 흐름, 편안한 호흡',icon:'film',label:'RECOMMENDED'},{id:'fast',title:'빠른 편집',sub:'간결한 컷, 경쾌한 전개',icon:'spark',label:''},{id:'shorts',title:'쇼츠 · 릴스',sub:'세로 화면, 핵심 장면 중심',icon:'play',label:'9:16'}] as const).map(s=><button key={s.id} disabled={disabled||!p} onClick={()=>edit({style:s.id,settings:{aspect:s.id==='shorts'?'9:16':'source',zoom:s.id==='basic'?1:s.id==='fast'?1.08:1.05}})} className={'style-option '+((p?.style||'basic')===s.id?'chosen':'')}><span className="style-icon"><Icon name={s.icon} size={20}/></span><span><strong>{s.title}{s.label&&<em>{s.label}</em>}</strong><small>{s.sub}</small></span><span className="radio"/></button>)}</div>
       <div className="field-heading"><span><Icon name="text" size={16}/> 자동 자막</span><label className="switch"><input type="checkbox" aria-label="자막 사용" disabled={disabled||!p} checked={p?.settings.subtitles??true} onChange={e=>setting('subtitles',e.target.checked)}/><span/></label></div>
-      <SubtitleControls settings={(p?.settings||{...subtitleCatalog.defaults,captionScale:"short-edge",fontSize:defaultCaptionSize,color:"#FFFFFF",outline:2,background:false,position:"bottom"}) as Settings} disabled={disabled||!p} aspect={p?.settings.aspect==="source"?p.source.aspect:(p?.settings.aspect||"source")} onChange={changes=>edit({settings:changes})}/>
-      <div className="two-fields"><label>자막 크기<select aria-label="자막 크기" disabled={disabled||!p} value={automaticCaptionSize?'auto':String(captionSize)} onChange={e=>e.target.value==='auto'?edit({settings:{captionSizeMode:'auto'}}):setting('fontSize',Number(e.target.value))}><option value="auto">자동{automaticCaptionSize?` · ${captionSize}px`:''}</option>{[...new Set([32,40,48,56,64,72,80,96,112,128,144,subtitleCatalog.fontSizeLimits.max,captionSize])].sort((a,b)=>a-b).map(n=><option key={n} value={n}>{n}px</option>)}</select></label><label>표시 위치<select disabled={disabled||!p} value={p?.settings.position||'bottom'} onChange={e=>setting('position',e.target.value as Settings['position'])}><option value="bottom">화면 하단</option><option value="middle">화면 중앙</option><option value="top">화면 상단</option></select></label></div>
-      <div className="two-fields compact"><label>글자 색상<input type="color" aria-label="자막 색상" disabled={disabled||!p} value={p?.settings.color||'#ffffff'} onChange={e=>setting('color',e.target.value)}/></label><label>테두리<select disabled={disabled||!p} value={p?.settings.outline??2} onChange={e=>setting('outline',Number(e.target.value))}>{[0,1,2,3,4,6].map(n=><option key={n} value={n}>{n}px</option>)}</select></label></div>
-      <label className="checkbox"><input type="checkbox" disabled={disabled||!p} checked={p?.settings.background||false} onChange={e=>setting('background',e.target.checked)}/> 자막 배경 사용</label>
+      <SubtitleControls settings={subtitleSettings} disabled={disabled||!p} aspect={p?.settings.aspect==="source"?p.source.aspect:(p?.settings.aspect||"source")} onChange={changes=>edit({settings:changes})}/>
+      <BasicSubtitleControls settings={subtitleSettings} disabled={disabled||!p} onChange={changes=>edit({settings:changes})}/>
       <div className="control-divider"/><label className="field-label">출력 설정</label><div className="two-fields"><label>해상도<select disabled={disabled||!p} value={p?.settings.resolution||'source'} onChange={e=>setting('resolution',e.target.value as Settings['resolution'])}><option value="source">원본 유지</option><option value="1080">1080p</option><option value="720">720p</option></select></label><label>화면 비율<select disabled={disabled||!p} value={p?.settings.aspect||'source'} onChange={e=>setting('aspect',e.target.value as Settings['aspect'])}><option value="source">원본 유지</option><option value="16:9">16:9 가로</option><option value="9:16">9:16 세로</option><option value="1:1">1:1 정사각</option></select></label></div><label className="quality-label">영상 품질<select disabled={disabled||!p} value={p?.settings.quality||'balanced'} onChange={e=>setting('quality',e.target.value as Settings['quality'])}><option value="high">고화질 · 큰 파일</option><option value="balanced">균형 · 권장</option><option value="small">작은 파일</option></select></label><div className="audio-options"><label className="checkbox"><input type="checkbox" disabled={disabled||!p} checked={p?.settings.normalize??true} onChange={e=>setting('normalize',e.target.checked)}/> 음량 균일화</label><label className="checkbox"><input type="checkbox" disabled={disabled||!p} checked={p?.settings.denoise??true} onChange={e=>setting('denoise',e.target.checked)}/> 배경 소음 완화</label></div><label className="quality-label">줌 효과<select disabled={disabled||!p} value={p?.settings.zoom||1} onChange={e=>setting('zoom',Number(e.target.value))}>{[1,1.05,1.08,1.1,1.15].map(n=><option key={n} value={n}>{n===1?'사용 안 함':`${Math.round((n-1)*100)}% 확대`}</option>)}</select></label>{p?.settings.aspect==='9:16'&&<p className="small muted">중앙 기준으로 좌우를 잘라 세로 화면을 만듭니다. 중요한 피사체가 잘리지 않는지 확인해 주세요.</p>}
       </div><div className="controls-actions"><button className="primary analyze-button" disabled={disabled||!p} onClick={analyze}><Icon name="spark" size={18}/>{p?.analyzed?'다시 분석·편집점 생성':'AI 분석·편집점 생성'}<Icon name="arrow" size={16}/></button><p className="local-caption"><Icon name="shield" size={12}/> 모델 준비 후 오프라인으로 분석합니다</p>
       <button className="secondary longform-open" disabled={disabled||!p} onClick={()=>{setTab('longform');document.getElementById('edit-review')?.scrollIntoView({block:'start'});}}>유튜브 롱폼 초벌 편집</button>

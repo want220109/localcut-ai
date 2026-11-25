@@ -8,7 +8,7 @@ export const subtitlePresetChanges=(id:string):Partial<Settings>=>{
  return preset?{...preset.settings,subtitlePreset:id} as Partial<Settings>:{subtitlePreset:id};
 };
 
-export function SubtitleControls({settings,disabled,aspect,onChange}:{settings:Settings;disabled:boolean;aspect:string;onChange:(settings:Partial<Settings>)=>void}){
+export function SubtitleControls({settings,disabled,aspect,allowAspectChange=true,onChange}:{settings:Settings;disabled:boolean;aspect:string;allowAspectChange?:boolean;onChange:(settings:Partial<Settings>)=>void}){
  const preset=catalog.presets.find(p=>p.id===settings.subtitlePreset);
  const font=catalog.fonts[settings.fontFamily||'malgun'];
  const terms=(settings.highlightWords||'').split(',').map(w=>w.trim()).filter(Boolean).sort((a,b)=>b.length-a.length);
@@ -21,8 +21,8 @@ export function SubtitleControls({settings,disabled,aspect,onChange}:{settings:S
    <option value="legacy">기존 자막 스타일 유지</option><option value="custom">직접 설정</option>
    {catalog.presets.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}
   </select></label>
-  {preset&&<p className="preset-description">{preset.description}<span>권장 비율 {preset.aspect} · 영상 비율은 직접 선택</span></p>}
-  {preset&&aspect!==preset.aspect&&<button className="quiet preset-aspect" disabled={disabled} onClick={()=>onChange({aspect:preset.aspect as Settings['aspect']})}>{preset.aspect} 화면 비율 적용</button>}
+  {preset&&<p className="preset-description">{preset.description}<span>권장 비율 {preset.aspect}{allowAspectChange&&" · 영상 비율은 직접 선택"}</span></p>}
+  {preset&&allowAspectChange&&aspect!==preset.aspect&&<button className="quiet preset-aspect" disabled={disabled} onClick={()=>onChange({aspect:preset.aspect as Settings['aspect']})}>{preset.aspect} 화면 비율 적용</button>}
   <div className="subtitle-sample platform-sample" aria-label="자막 스타일 예시" style={{fontFamily:`"${font.css}", "Malgun Gothic", sans-serif`,fontWeight:settings.fontBold?700:400,color:settings.color,background:settings.background?'#111820':undefined,textShadow:`${Math.min(3,settings.captionShadow||0)}px ${Math.min(3,settings.captionShadow||0)}px 2px #000`,WebkitTextStroke:settings.outline?'.35px #111':'0'}}>
    {parts.map((part,i)=><span key={i} style={pattern&&i%2?{color:settings.highlightColor}:undefined}>{part}</span>)}
   </div>
@@ -36,4 +36,33 @@ export function SubtitleControls({settings,disabled,aspect,onChange}:{settings:S
   <label className="checkbox"><input aria-label="두 줄 자동 배치" type="checkbox" disabled={disabled} checked={settings.captionWrap||false} onChange={e=>custom({captionWrap:e.target.checked})}/> 두 줄 이내로 자동 배치</label>
   <p className="preset-footnote">프리셋 변경은 대본·자막 문구·시간을 보존합니다. 변경 후 MP4를 다시 출력하세요. 플랫폼 표시 영역은 기기·화면에 따라 달라질 수 있습니다.</p>
  </div>;
+}
+
+export function BasicSubtitleControls({settings,disabled,onChange}:{
+ settings:Settings;disabled:boolean;onChange:(settings:Partial<Settings>)=>void;
+}){
+ const {fontSize,position,color,outline,background}=settings;
+ const automatic=settings.captionSizeMode==='auto';
+ const sizes=[...new Set([32,40,48,56,64,72,80,96,112,128,144,catalog.fontSizeLimits.max,fontSize])].sort((a,b)=>a-b);
+ const custom=(changes:Partial<Settings>)=>onChange({...changes,subtitlePreset:'custom'});
+ return <>
+  <div className="two-fields">
+   <label>자막 크기<select aria-label="자막 크기" disabled={disabled} value={automatic?'auto':String(fontSize)}
+    onChange={e=>e.target.value==='auto'?onChange({captionSizeMode:'auto'}):custom({fontSize:Number(e.target.value)})}>
+    <option value="auto">자동{automatic?` · ${fontSize}px`:''}</option>
+    {sizes.map(size=><option key={size} value={size}>{size}px</option>)}
+   </select></label>
+   <label>표시 위치<select aria-label="표시 위치" disabled={disabled} value={position} onChange={e=>custom({position:e.target.value as Settings['position']})}>
+    <option value="bottom">화면 하단</option><option value="middle">화면 중앙</option><option value="top">화면 상단</option>
+   </select></label>
+  </div>
+  <div className="two-fields compact">
+   <label>글자 색상<input type="color" aria-label="자막 색상" disabled={disabled} value={color} onChange={e=>custom({color:e.target.value})}/></label>
+   <label>테두리<select aria-label="테두리" disabled={disabled} value={outline} onChange={e=>custom({outline:Number(e.target.value)})}>
+    {[...new Set([0,1,2,3,4,6,outline])].sort((a,b)=>a-b).map(width=><option key={width} value={width}>{width}px</option>)}
+   </select></label>
+  </div>
+  <label className="checkbox"><input type="checkbox" disabled={disabled} checked={background}
+   onChange={e=>custom({background:e.target.checked})}/> 자막 배경 사용</label>
+ </>;
 }
