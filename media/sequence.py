@@ -11,12 +11,15 @@ from media.tools import binary, probe, run
 from subtitles.captions import remap, srt
 
 
+def sequence_framing(width, height):
+    return (f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p")
+
+
 def encode_clip(clip, frames, settings, width, height, audio, output, directory, captions, *, start=0, preview=False):
     source = clip["source"]
     length = frames / SEQUENCE_FPS
-    video = (f"[0:V:0]setpts=PTS-STARTPTS,fps={SEQUENCE_FPS},"
-             f"scale={width}:{height}:force_original_aspect_ratio=decrease:force_divisible_by=2,"
-             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,"
+    video = (f"[0:V:0]setpts=PTS-STARTPTS,fps={SEQUENCE_FPS},{sequence_framing(width, height)},"
              f"tpad=stop_mode=clone:stop=-1,trim=end_frame={frames}")
     if settings["subtitles"] and captions:
         write_ass(captions, settings, width, height, directory)

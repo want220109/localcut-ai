@@ -47,6 +47,16 @@ def dispatch(request, progress=lambda percent,message:None):
         p=create_sequence(store, request.get("sources"))
         return {"project": p, "audit": transcript_audit(p)}
     p=store.load(request["id"])
+    if action=="captionFrame":
+        from media.caption_frame import caption_frame
+        clip = None
+        if "clips" in p:
+            from engine.transcript_edit import require_revision
+            require_revision(p, request.get("revision"))
+            clip = next((item for item in p["clips"] if item["id"] == request.get("clipId")), None)
+            if clip is None:
+                raise ValueError("클립을 다시 선택해 주세요.")
+        return caption_frame(p, request["draft"], clip=clip)
     if "clips" in p:
         if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption", "render"}:
             from engine.sequence import sequence_action
@@ -56,9 +66,6 @@ def dispatch(request, progress=lambda percent,message:None):
             return {"project": result, "audit": transcript_audit(result)}
         if action not in {"get", "edit", "undo"} or (action == "edit" and set(request["changes"]) - {"settings", "name"}):
             raise ValueError("여러 원본 작업에서 지원하는 편집을 선택해 주세요.")
-    if action=="captionFrame":
-        from media.caption_frame import caption_frame
-        return caption_frame(p, request["draft"])
     if action=="cutPreview":
         from media.cut_preview import cut_preview
         return cut_preview(p, request.get("revision"), request.get("cutId"))

@@ -180,11 +180,13 @@ async function request(event,message) {
   }
   if(action==='captionFrame') {
     if(busy||frameBusy) throw new Error('작업이 끝나면 자막 미리보기를 갱신합니다.');
-    const {captionId,text,start,end}=message;
+    const {captionId,text,start,end,clipId,revision}=message;
     if(typeof captionId!=='string'||captionId.length>128||typeof text!=='string'||text.length>10000||
         !Number.isFinite(start)||!Number.isFinite(end)) throw new Error('미리보기 자막의 문구와 시간을 확인해 주세요.');
+    if(clipId!==undefined&&(!Number.isSafeInteger(revision)||revision<0)) throw new Error('현재 편집 상태를 확인해 주세요.');
+    if(clipId!==undefined)projectId(clipId);
     frameBusy=true;
-    try {return await engine({action,id,draft:{id:captionId,text,start,end}},false);}
+    try {return await engine({action,id,clipId,revision,draft:{id:captionId,text,start,end}},false);}
     finally {frameBusy=false;}
   }
   if(action==='cutPreview'||action==='editTranscript') {

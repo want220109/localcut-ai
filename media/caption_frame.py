@@ -12,10 +12,11 @@ from media.tools import binary, verify_source
 from subtitles.captions import remap
 
 
-def caption_frame(project, draft):
+def caption_frame(project, draft, *, clip=None):
     """Render one frame using the current edits and an unsaved caption draft."""
-    source = project["source"]
-    saved = next((cue for cue in project["captions"] if cue["id"] == draft.get("id")), None)
+    context = project if clip is None else clip
+    source = context["source"]
+    saved = next((cue for cue in context["captions"] if cue["id"] == draft.get("id")), None)
     if saved is None:
         raise ValueError("이 작업에서 선택한 자막을 찾을 수 없습니다.")
     text = draft.get("text")
@@ -29,8 +30,12 @@ def caption_frame(project, draft):
     replacement = saved
     if (text, start, end) != (saved["text"], saved["start"], saved["end"]):
         replacement = {**saved, "text": text, "start": start, "end": end, "textEdited": True}
-    captions = [replacement if cue["id"] == saved["id"] else cue for cue in project["captions"]]
-    intervals = frame_intervals(project)
+    captions = [replacement if cue["id"] == saved["id"] else cue for cue in context["captions"]]
+    if clip is None:
+        intervals = frame_intervals(project)
+    else:
+        from engine.sequence import SEQUENCE_FPS, clip_frames
+        intervals = [(0, clip_frames(clip) / SEQUENCE_FPS)]
     cues = [cue for cue in remap(captions, intervals, include_ids=True) if cue["id"] == saved["id"]]
 
     midpoint = (start + end) / 2
@@ -58,6 +63,8 @@ def caption_frame(project, draft):
     message = None
     if not settings["subtitles"]:
         message = "자막 사용이 꺼져 있습니다."
+    elif clip is not None and not clip["enabled"]:
+        message = "이 클립은 현재 MP4 출력에서 제외되어 있습니다."
     elif cue is None and text.strip():
         message = "이 자막은 현재 편집 결과에 표시되지 않습니다."
 
@@ -66,7 +73,12 @@ def caption_frame(project, draft):
     # Apply the real output styling before downscaling the already composed frame.
     ratio = min(1, 960 / max(width, height))
     preview_width, preview_height = max(2, round(width * ratio)), max(2, round(height * ratio))
-    video_filter = "setpts=PTS-STARTPTS," + video_framing(settings, index, length, width, height)
+    if clip is None:
+        framing = video_framing(settings, index, length, width, height)
+    else:
+        from media.sequence import sequence_framing
+        framing = sequence_framing(width, height)
+    video_filter = "setpts=PTS-STARTPTS," + framing
     with TemporaryDirectory(prefix="localcut-caption-") as folder:
         directory = Path(folder)
         if cue is not None and settings["subtitles"]:
@@ -75,7 +87,7 @@ def caption_frame(project, draft):
         video_filter += f",scale={preview_width}:{preview_height}"
         source_time = min(source_time, max(0, source["duration"] - 1 / source["fps"]))
         args = [binary("ffmpeg"), "-nostdin", "-v", "error", "-filter_threads", "1", "-ss", f"{source_time:.8f}",
-                "-i", source["path"], "-map", "0:v:0", "-an", "-vf", video_filter, "-frames:v", "1",
+                "-i", source["path"], "-map", "0:v:0" if clip is None else "0:V:0", "-an", "-vf", video_filter, "-frames:v", "1",
                 "-c:v", "png", "-threads", "1", "-f", "image2pipe", "pipe:1"]
         flags = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
         try:

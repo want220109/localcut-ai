@@ -65,6 +65,38 @@ def test_sorting_fallback_exclusion_stale_update_and_undo(tmp_path, files):
 
 
 @pytest.mark.integration
+def test_caption_preview_uses_selected_clip_and_preserves_project(tmp_path, files):
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+    p = call("createSequence", sources=[str(path) for path in files])["project"]
+    red, portrait, _ = p["clips"]
+    for clip in (red, portrait):
+        clip["captions"] = [{"id": "first", "start": .25, "end": .75, "text": "저장된 문구"}]
+    p["settings"]["resolution"] = "720"
+    store = Store(tmp_path)
+    store.save(p)
+    filename = store.directory(p["id"]) / "project.json"
+    original = filename.read_bytes()
+    values = dict(id=p["id"], revision=0, clipId=portrait["id"])
+    first = call("captionFrame", **values, draft=portrait["captions"][0])
+    edited = call("captionFrame", **values, draft=dict(portrait["captions"][0], text="정지 화면에서 수정한 자막"))
+    assert edited["image"] != first["image"]
+    assert edited["sourceTime"] == .5
+    png = base64.b64decode(edited["image"].split(",", 1)[1])
+    pixels = subprocess.check_output([binary("ffmpeg"), "-v", "error", "-i", "pipe:0", "-vf",
+                                     "crop=2:2:20:100,format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"], input=png)
+    assert max(pixels) < 15
+    center = subprocess.check_output([binary("ffmpeg"), "-v", "error", "-i", "pipe:0", "-vf",
+                                     "crop=2:2:480:100,format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"], input=png)
+    assert center[2] > 220
+    assert filename.read_bytes() == original
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("captionFrame", **dict(values, revision=1), draft=portrait["captions"][0])
+    with pytest.raises(ValueError, match="클립"):
+        call("captionFrame", **dict(values, clipId="missing"), draft=portrait["captions"][0])
+
+
+@pytest.mark.integration
 def test_sequence_mp4_video_order_mixed_orientation_audio_and_caption_sync(tmp_path, files):
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in files]
     def call(action, **fields):

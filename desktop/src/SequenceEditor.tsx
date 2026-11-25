@@ -1,4 +1,5 @@
-import React,{useEffect,useState} from 'react';
+import React,{useEffect,useMemo,useRef,useState} from 'react';
+import {CaptionFramePreview} from './CaptionFramePreview';
 import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,Settings} from './types';
 
 interface Props {
@@ -17,17 +18,27 @@ interface Props {
  undo:()=>void;
  replace:()=>void;
  saveSubtitles:()=>void;
+ result:React.ReactNode;
 }
 
 export function SequenceEditor({project,disabled,progress,duration,formatTime,edit,preview,connection,
- analyze,saveCaption,setting,render,undo,replace,saveSubtitles}:Props) {
+ analyze,saveCaption,setting,render,undo,replace,saveSubtitles,result}:Props) {
  const clips=project.clips!;
  const [selected,setSelected]=useState(clips[0].id);
  const [previewUrl,setPreviewUrl]=useState('');
  const [connectionData,setConnectionData]=useState<SequenceConnection|null>(null);
  const [connectionUrl,setConnectionUrl]=useState('');
- const [draft,setDraft]=useState<Caption|null>(null);
+ const [captionId,setCaptionId]=useState<string|null>(null);
+ const [draftTexts,setDraftTexts]=useState<Record<string,string>>({});
+ const captionPanel=useRef<HTMLElement>(null);
+ const sourcePlayer=useRef<HTMLVideoElement>(null);
  const clip=clips.find(item=>item.id===selected)!;
+ const captionKey=(cue:Caption)=>clip.id+':'+cue.id;
+ const cue=clip.captions.find(item=>item.id===captionId)||clip.captions[0];
+ const key=cue?captionKey(cue):'';
+ const editedText=cue?draftTexts[key]??cue.text:'';
+ const draft=useMemo(()=>cue?{...cue,text:editedText}:null,[cue,editedText]);
+ const dirty=!!cue&&editedText!==cue.text;
  const included=clips.filter(item=>item.enabled);
  const position=included.findIndex(item=>item.id===selected);
  const next=position>=0?included[position+1]:undefined;
@@ -52,7 +63,9 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
   void order(rows);
  }
  async function open(item:Clip) {
-  setSelected(item.id);setDraft(null);setConnectionData(null);setPreviewUrl('');
+  setSelected(item.id);
+  if(item.id!==selected)setCaptionId(null);
+  setConnectionData(null);setPreviewUrl('');
   setPreviewUrl((await preview(item.id))||'');
  }
  async function openConnection(){
@@ -60,11 +73,26 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
   setConnectionData(await connection(clip.id));
  }
  async function save(){
-  if(!draft)return;
-  if(await saveCaption(clip.id,draft))setDraft(null);
+  if(!draft||!dirty)return;
+  if(await saveCaption(clip.id,draft))setDraftTexts(previous=>{
+   const remaining={...previous};
+   delete remaining[key];
+   return remaining;
+  });
  }
 
- return <section className="panel sequence-panel" aria-label="여러 원본 편집">
+ function selectCaption(caption:Caption){
+  setCaptionId(caption.id);
+  setConnectionData(null);
+  const player=sourcePlayer.current;
+  if(player?.readyState){
+   player.pause();
+   player.currentTime=caption.start;
+  }
+ }
+
+ return <div className="sequence-workspace" role="region" aria-label="여러 원본 편집">
+ <section className="panel sequence-panel">
   <div className="section-title"><h2>클립 순서</h2><button className="quiet" disabled={disabled} onClick={replace}>새 영상 불러오기</button></div>
   <div className="sequence-body">
    <div className="sequence-summary"><span>{included.length}/{clips.length}개 포함 · {project.sortOrder==='capture'?'촬영 시간순':project.sortOrder==='import'?'불러온 순서':'편집 순서'}</span>
@@ -94,25 +122,13 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
     <div className="button-row">
      <button className="secondary" disabled={disabled} onClick={()=>open(clip)}>선택한 원본 보기</button>
      {next&&<button className="secondary" disabled={disabled} onClick={openConnection}>다음 클립 연결부 보기</button>}
+     <button className="secondary" onClick={()=>{captionPanel.current?.scrollIntoView({block:'nearest'});}}>자막 편집</button>
     </div>
-    {previewUrl&&<video key={previewUrl} src={previewUrl} controls preload="metadata" aria-label="선택한 원본 미리보기"/>}
+    {previewUrl&&<video ref={sourcePlayer} key={previewUrl} src={previewUrl} controls preload="metadata" aria-label="선택한 원본 미리보기"/>}
     {connectionData&&connectionUrl&&<>
      <p className="small muted">{connectionData.from} → {connectionData.to} · {formatTime(connectionData.joinAt)}에서 연결</p>
      <video key={connectionUrl} src={connectionUrl} controls autoPlay aria-label="클립 연결부 미리보기"/>
     </>}
-   </div>
-   <div className="sequence-captions">
-    <div className="button-row">
-     <h3>선택한 클립 자막</h3>
-     {!clip.analyzed&&<button className="secondary" disabled={disabled} onClick={()=>analyze(clip.id)}>클립 자막 만들기</button>}
-    </div>
-    {!!clip.captions.length&&<label>수정할 자막 줄<select value={draft?.id||''} disabled={disabled} onChange={e=>{
-     const cue=clip.captions.find(c=>c.id===e.target.value);setDraft(cue?{...cue}:null);
-    }}><option value="">자막 선택</option>{clip.captions.map(c=><option key={c.id} value={c.id}>{formatTime(c.start)} · {c.text}</option>)}</select></label>}
-    {draft&&<div className="sequence-caption-editor"><label>자막 내용<textarea maxLength={10000} value={draft.text} disabled={disabled}
-     onChange={e=>setDraft({...draft,text:e.target.value})}/></label>
-     <button className="secondary" disabled={disabled} onClick={save}>자막 수정 저장</button></div>}
-    {clip.analyzed&&!clip.captions.length&&<p className="small muted">인식된 음성이 없습니다.</p>}
    </div>
    <div className="sequence-output">
     <label>가로 출력 해상도<select aria-label="가로 출력 해상도" value={project.settings.resolution} disabled={disabled} onChange={e=>setting('resolution',e.target.value as Settings['resolution'])}>
@@ -126,5 +142,31 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
     {project.output?.revision!==project.revision&&<button className="primary" disabled={disabled} onClick={render}>MP4 출력</button>}
    </div>
   </div>
- </section>;
+ </section>
+ {result}
+ <section ref={captionPanel} className="panel sequence-caption-panel" aria-label="선택한 클립 자막">
+  <div className="section-title">
+   <h2>선택한 클립 자막 <span className="sequence-caption-name" title={clip.name}>{clip.name}</span></h2>
+   {!clip.analyzed&&<button className="secondary" disabled={disabled} onClick={()=>analyze(clip.id)}>클립 자막 만들기</button>}
+  </div>
+  {draft?<div className="captions-editor sequence-caption-grid">
+   <div className="caption-list" role="group" aria-label="클립 자막 목록">
+    {clip.captions.map(item=><button type="button" key={item.id} disabled={disabled}
+     className={item.id===draft.id?'selected':''} aria-pressed={item.id===draft.id} onClick={()=>selectCaption(item)}>
+     <span>{formatTime(item.start)}</span>{(draftTexts[captionKey(item)]??item.text)||'빈 자막'}
+    </button>)}
+   </div>
+   <div className="caption-edit">
+    <CaptionFramePreview key={key} projectId={project.id} revision={project.revision} clipId={clip.id}
+     caption={draft} paused={disabled} formatTime={formatTime}/>
+    <label>자막 내용<textarea aria-label="자막 내용" maxLength={10000} value={draft.text} disabled={disabled}
+     onChange={e=>{const text=e.target.value;setDraftTexts(previous=>({...previous,[key]:text}));}}/></label>
+    <div className="button-row">
+     <button className="secondary" disabled={disabled||!dirty} onClick={save}>자막 수정 저장</button>
+     {dirty&&<span className="small muted">저장하지 않은 수정</span>}
+    </div>
+   </div>
+  </div>:<p className="inline-empty">{clip.analyzed?'인식된 음성이 없습니다.':'클립 자막을 만들면 수정할 줄이 표시됩니다.'}</p>}
+ </section>
+ </div>;
 }

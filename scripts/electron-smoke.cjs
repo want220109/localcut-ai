@@ -182,6 +182,7 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  await page.waitForFunction(()=>document.querySelector('.sequence-preview video')?.videoWidth===180,null,{timeout:10000});
  await sequence.getByRole('button',{name:'클립 자막 만들기',exact:true}).click();
  await sequence.getByText('인식된 음성이 없습니다.',{exact:true}).waitFor();
+ await checkSequenceCaptions(app,page,clips);
  await sequence.locator('.sequence-name').filter({hasText:clips[0].name}).click();
  await sequence.getByRole('button',{name:'다음 클립 연결부 보기',exact:true}).click();
  const connection=sequence.locator('video[aria-label="클립 연결부 미리보기"]');
@@ -204,6 +205,52 @@ async function checkSequence(app,page,ffmpeg,testRoot){
  await sequence.getByText('2/3개 포함 · 편집 순서',{exact:true}).waitFor();
  assert.deepEqual(await order(),clips.map(clip=>clip.name));
  console.log('Multi-file picker, capture order, drag and keyboard order, excluded clip, original and join preview, MP4 save, source guards and persistence passed');
+}
+async function checkSequenceCaptions(app,page,clips){
+ const history=await page.evaluate(()=>window.localcut.call('historyLists'));
+ const {id}=history.recent.find(item=>item.name==='여행-도착 외 2개');
+ const data=await app.evaluate(({app})=>app.getPath('userData'));
+ const filename=path.join(data,'workspace','jobs',id,'project.json');
+ const fixture=JSON.parse(await fs.readFile(filename,'utf8'),
+  (key,value,context)=>key==='mtimeNs'?JSON.rawJSON(context.source):value);
+ fixture.clips[0].captions=[
+  {id:'c0',start:.2,end:.6,text:'첫 자막을 검토합니다'},
+  {id:'c1',start:1.2,end:1.8,text:'다음 자막을 검토합니다'},
+ ];
+ fixture.clips[1].captions=[{id:'c0',start:.5,end:1.2,text:'세로 클립의 자막입니다'}];
+ await fs.writeFile(filename,JSON.stringify(fixture),'utf8');
+ await page.reload();
+ await page.locator('.history-item').filter({hasText:'여행-도착 외 2개'}).click();
+ const panel=page.getByRole('region',{name:'선택한 클립 자막',exact:true});
+ const list=panel.getByRole('group',{name:'클립 자막 목록',exact:true});
+ const frame=panel.getByRole('img',{name:'현재 자막과 출력 설정을 적용한 정지 화면',exact:true});
+ const editor=panel.getByLabel('자막 내용',{exact:true});
+ await list.getByRole('button',{name:/첫 자막을 검토합니다/}).waitFor();
+ await list.getByRole('button',{name:/다음 자막을 검토합니다/}).waitFor();
+ await frame.waitFor();
+ const previous=await frame.getAttribute('src');
+ await editor.fill('정지 화면에서 교정한 첫 자막');
+ await page.waitForFunction(old=>document.querySelector('.sequence-caption-panel img')?.getAttribute('src')!==old,previous,{timeout:12000});
+ const unsaved=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(unsaved.project.clips[0].captions[0].text,'첫 자막을 검토합니다');
+ await page.getByRole('button',{name:'선택한 원본 보기',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.sequence-preview video')?.readyState>=1,null,{timeout:12000});
+ await list.getByRole('button',{name:/다음 자막을 검토합니다/}).click();
+ assert.equal(await editor.inputValue(),'다음 자막을 검토합니다');
+ await page.waitForFunction(()=>Math.abs(document.querySelector('.sequence-preview video')?.currentTime-1.2)<.05,null,{timeout:10000});
+ await page.locator('.sequence-name').filter({hasText:clips[1].name}).click();
+ await list.getByRole('button',{name:/세로 클립의 자막입니다/}).waitFor();
+ await frame.waitFor();
+ assert.equal(await editor.inputValue(),'세로 클립의 자막입니다');
+ await page.locator('.sequence-name').filter({hasText:clips[0].name}).click();
+ await list.getByRole('button',{name:/정지 화면에서 교정한 첫 자막/}).click();
+ await panel.getByRole('button',{name:'자막 수정 저장',exact:true}).click();
+ await panel.getByRole('button',{name:'자막 수정 저장',exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector('.sequence-caption-panel')?.textContent.includes('저장하지 않은 수정'),null,{timeout:10000});
+ const saved=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(saved.project.clips[0].captions[0].text,'정지 화면에서 교정한 첫 자막');
+ assert.equal(saved.project.clips[1].captions[0].text,'세로 클립의 자막입니다');
+ console.log('Sequence caption list, original seek, live still, unsaved text across clips and caption save passed');
 }
 async function checkRecentHistory(page){
  const work='여행-도착 외 2개';
@@ -404,7 +451,7 @@ async function main(){
   await checkSequence(app,reopened,ffmpeg,testRoot);
   await checkRecentHistory(reopened);
   assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,sequenceCaptionsPassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } catch(error){
   console.error(error);

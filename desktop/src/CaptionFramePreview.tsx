@@ -6,8 +6,8 @@ type Frame={image:string;sourceTime:number;message:string|null};
 // Keep a single request running even when the user switches captions or tabs.
 let inFlight:Promise<Frame>|null=null;
 
-export function CaptionFramePreview({projectId,revision,caption,paused,formatTime}:{
- projectId:string;revision:number;caption:Caption;paused:boolean;formatTime:(seconds:number)=>string;
+export function CaptionFramePreview({projectId,revision,clipId,caption,paused,formatTime}:{
+ projectId:string;revision:number;clipId?:string;caption:Caption;paused:boolean;formatTime:(seconds:number)=>string;
 }){
  const [frame,setFrame]=useState<Frame|null>(null);
  const [pending,setPending]=useState(true);
@@ -26,7 +26,7 @@ export function CaptionFramePreview({projectId,revision,caption,paused,formatTim
    }
    if(!active)return;
    const request=bridge.call('captionFrame',{
-    id:projectId,captionId:caption.id,text:caption.text,start:caption.start,end:caption.end
+    id:projectId,revision,clipId,captionId:caption.id,text:caption.text,start:caption.start,end:caption.end
    }) as Promise<Frame>;
    inFlight=request;
    try{
@@ -43,7 +43,7 @@ export function CaptionFramePreview({projectId,revision,caption,paused,formatTim
    }
   },350);
   return ()=>{active=false;window.clearTimeout(timer);};
- },[projectId,revision,caption,paused]);
+ },[projectId,revision,clipId,caption,paused]);
 
  return <figure className="caption-frame" aria-label="자막 정지 화면 미리보기" aria-busy={pending||paused}>
   <figcaption><strong>자막 정지 화면</strong>{frame&&<span>원본 {formatTime(frame.sourceTime)}</span>}</figcaption>
