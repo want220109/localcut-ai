@@ -43,6 +43,8 @@ function App(){
  const [busy,setBusy]=useState(false),[progress,setProgress]=useState<Progress>({percent:0,message:''});
  const [error,setError]=useState(''),[notice,setNotice]=useState(''),[tab,setTab]=useState<'cuts'|'captions'|'transcript'|'longform'>('cuts');
  const [mp4Save,setMp4Save]=useState<Mp4Save|null>(null);
+ const [productionRunning,setProductionRunning]=useState(false);
+ const [autoReview,setAutoReview]=useState<{id:string;request:number}|null>(null);
  const [connection,setConnection]=useState<{clip?:CutPreview;error?:string}|null>(null);
  const [settingsOpen,setSettingsOpen]=useState(false),[model,setModel]=useState('small'),[command,setCommand]=useState('');
  const [update,setUpdate]=useState<Update>({status:'unconfigured',message:'배포 저장소 연결 전',channel:'stable'});
@@ -134,6 +136,30 @@ function App(){
   });
   return applied;
  }
+ function showAutoReview(id:string){
+  setAutoReview(previous=>({id,request:(previous?.request??0)+1}));
+ }
+ async function produceLongform(){
+  if(!project||busy)return;
+  const {id,revision}=project;
+  await task(async()=>{
+   setProductionRunning(true);
+   setMp4Save(null);
+   outputVideo.current?.pause();
+   try{
+    const result=await call<ProjectResult>('autoLongform',{id,revision,model});
+    accept(result);
+    showAutoReview(id);
+    setHistory(await call<HistoryLists>('historyLists'));
+   }catch(error){
+    // Analysis can be saved even when the complete preview could not be rendered.
+    try{accept(await call<ProjectResult>('get',{id}));}catch{}
+    throw error;
+   }finally{
+    setProductionRunning(false);
+   }
+  });
+ }
  async function save(kind:string){
   if(!project||busy)return;
   const {id}=project;
@@ -171,17 +197,23 @@ function App(){
  const removed=p?.clips?0:Math.max(0,sourceDuration-outDuration),pending=p?.cuts.filter(c=>c.review&&!c.enabled).length||0;
  const selectedModel=health?.models.find(m=>m.id===model),stale=!!p?.output&&p.output.revision!==p.revision;
  const disabled=busy||!bridge;
+ const autoReady=!!p?.autoLongform&&!!p.outputUrl&&!stale;
+ const autoNeedsModel=p?.clips
+  ?p.clips.some(clip=>clip.enabled&&clip.source.hasAudio&&!clip.speechReady&&
+    ((!clip.analyzed&&!clip.captions.length)||clip.cuts===undefined))
+  :!!p?.source.hasAudio&&!p.analyzed&&!p.transcript.length;
+ const autoReviewRequest=autoReview?.id===p?.id?autoReview?.request??0:0;
  const saveFeedback=mp4Save?.id===p?.id?mp4Save:null;
  const subtitleSettings=p?.settings||({
   ...subtitleCatalog.defaults,captionSizeMode:'auto',captionScale:'short-edge',fontSize:subtitleCatalog.automaticSizes.standard,
   color:'#FFFFFF',outline:2,background:false,position:'bottom'
  } as Settings);
  const historyItems=viewHidden?history.hidden:history.recent;
- const resultPanel=(<div className="panel result-panel"><div className="section-title"><h2>{!p?.clips&&<span className="number-label">02</span>} 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
-       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.clips?'MP4 저장을 누르면 포함한 영상을 순서대로 합쳐 한 파일로 저장합니다.':p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
+ const resultPanel=(exportBlocked=false)=>(<div className="panel result-panel"><div className="section-title"><h2>{!p?.clips&&<span className="number-label">02</span>} {p?.autoLongform?'롱폼 초안 재생':'편집 결과'}</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 내용은 저장 시 반영':p.autoLongform?'초안 준비 완료':'출력 완료'}</span>}</div>
+       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'수정 전 미리보기':p.autoLongform?'롱폼 초안':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.clips?'MP4 저장을 누르면 포함한 영상을 순서대로 합쳐 한 파일로 저장합니다.':p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
        <div className="result-footer"><div><span>예상 완성 길이</span><strong>{p?time(outDuration):'--:--'} {removed>0&&<small>−{time(removed)}</small>}</strong></div><div className="button-row">
         {!!p?.outputUrl&&!stale&&<button className="quiet" disabled={disabled} onClick={()=>revealMp4()}><Icon name="folder" size={15}/> 출력 파일 위치</button>}
-        <button className={p?.clips?"primary":"secondary"} disabled={disabled||!p} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':'MP4 저장'}</button>
+        <button className={p?.clips?"primary":"secondary"} disabled={disabled||!p||exportBlocked} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':p?.autoLongform?'최종 MP4 저장':'MP4 저장'}</button>
        </div></div>
        {saveFeedback&&<div className={'export-feedback '+saveFeedback.state} role={saveFeedback.state==='error'?'alert':'status'}>
         {saveFeedback.state==='saved'&&<strong>MP4 저장 완료</strong>}
@@ -226,8 +258,27 @@ function App(){
     {error&&<div className="banner error" role="alert"><strong>작업을 완료하지 못했습니다.</strong><span>{error}</span><button onClick={()=>setError('')} aria-label="오류 닫기">×</button></div>}
     {notice&&<div className="banner success" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="안내 닫기">×</button></div>}
     {settingsOpen&&<section className="settings-panel panel"><div className="section-title"><h2><Icon name="settings" size={18}/> 모델과 업데이트</h2><button className="quiet" onClick={()=>setSettingsOpen(false)}>닫기</button></div><div className="settings-columns"><div><h3>로컬 한국어 음성 모델</h3><p>모델 파일만 외부에서 다운로드합니다. 영상과 대본은 전송하지 않습니다.</p><label>음성인식 모델<select value={model} disabled={busy} onChange={e=>setModel(e.target.value)}>{(health?.models||[{id:'small',label:'한국어 권장 · small',sizeMB:490,ready:false},{id:'tiny',label:'속도 우선 · tiny',sizeMB:76,ready:false}]).map(m=><option key={m.id} value={m.id}>{m.label} · 약 {m.sizeMB} MB {m.ready?'· 준비됨':''}</option>)}</select></label><div className="model-status">{selectedModel?.ready?'● 로컬 모델 준비 완료':'○ 모델을 먼저 준비해 주세요'}</div><div className="button-row"><button className="secondary" disabled={disabled||selectedModel?.ready} onClick={()=>installModel()}>다운로드에 동의하고 설치</button><button className="quiet" disabled={disabled} onClick={()=>installModel(true)}>오프라인 폴더 가져오기</button></div><p className="small muted">{health?.cpuNote||'CPU에서도 실행할 수 있습니다. 긴 영상은 영상 길이보다 오래 걸릴 수 있습니다.'}<br/>GPU 사용은 CUDA 드라이버·라이브러리 준비 상태에 따라 달라집니다.</p></div><div><h3>프로그램 업데이트</h3><label>배포 채널<select disabled={busy||update.status==='downloading'||update.status==='downloaded'} value={update.channel} onChange={e=>updateAction('check',e.target.value)}><option value="stable">안정 버전</option><option value="beta">테스트 버전</option></select></label><p>{update.message}</p>{update.version&&<span className="tag">v{update.version}</span>}{update.notes&&<pre className="release-notes">{update.notes}</pre>}{update.status==='downloading'&&<progress max={100} value={update.percent||0}/>}<div className="button-row"><button className="secondary" disabled={disabled||update.status==='unconfigured'} onClick={()=>updateAction('check')}>업데이트 확인</button>{update.status==='available'&&<button className="secondary" disabled={disabled} onClick={()=>updateAction('download')}>다운로드</button>}{update.status==='downloaded'&&<button className="primary" disabled={disabled} onClick={()=>{if(window.confirm('작업은 자동 저장되어 있습니다. 업데이트를 설치하고 다시 시작할까요?'))updateAction('install');}}>설치하고 재시작</button>}</div><p className="small muted">편집 중에는 설치하지 않습니다. 업데이트 후에도 작업 기록과 모델은 유지됩니다.</p></div></div></section>}
+    {p&&<section className="panel auto-production" aria-label="유튜브 롱폼 자동 제작">
+     <div className="section-title">
+      <h2><Icon name="spark" size={18}/> 유튜브 롱폼 자동 제작</h2>
+      {autoReady?<button className="primary" disabled={disabled} onClick={()=>showAutoReview(p.id)}>초안 보기</button>
+       :autoNeedsModel&&!selectedModel?.ready?<button className="primary" disabled={disabled}
+        onClick={()=>{setSettingsOpen(true);window.scrollTo(0,0);}}>한국어 음성 모델 준비</button>
+       :<button className="primary" disabled={disabled} onClick={produceLongform}>
+        {productionRunning?'자동 제작 중…':p.autoLongform?'초안 다시 만들기':'자동 제작'}</button>}
+     </div>
+     <div className="sequence-body">
+      {productionRunning?<div className="sequence-progress" role="status">
+       <span>{progress.message} · {Math.round(progress.percent)}%</span><progress max={100} value={progress.percent}/>
+      </div>:<p className="small muted">{autoReady
+        ?'초안을 재생하고, 필요한 수정이 끝나면 최종 MP4를 저장하세요.'
+        :autoNeedsModel&&!selectedModel?.ready?'음성이 있는 영상을 분석하려면 음성 모델을 한 번 준비해 주세요.'
+        :p.autoLongform?'현재 편집 내용으로 전체 초안을 다시 재생할 수 있습니다.'
+        :'자막, 컷 편집, 롱폼 구성과 음량 보정을 적용한 초안을 만듭니다.'}</p>}
+     </div>
+    </section>}
     {p?.clips?
-     <SequenceEditor key={p.id} project={p} disabled={disabled} progress={busy?progress:null} duration={outDuration} formatTime={time}
+     <SequenceEditor key={p.id} project={p} disabled={disabled} progress={busy&&!productionRunning?progress:null} duration={outDuration} formatTime={time} autoReviewRequest={autoReviewRequest}
       edit={async(rows:ClipSelection[])=>{await changeSequence('editSequence',{rows});}}
       preview={async id=>(await readSequence<{url:string}>('sequencePreview',{clipId:id}))?.url??null}
       connection={id=>readSequence<SequenceConnection>('sequenceConnection',{clipId:id})}
@@ -251,7 +302,7 @@ function App(){
       <div className="panel source-panel"><div className="section-title"><h2><span className="number-label">01</span> 원본 영상</h2>{p&&<button className="quiet" disabled={disabled} onClick={load}><Icon name="folder" size={14}/> 영상 변경</button>}</div>
        {p?<><div className="video-stage"><video ref={sourceVideo} src={p.sourceUrl} controls preload="metadata" onTimeUpdate={e=>setSourceTime(e.currentTarget.currentTime)}/><span className="video-label">{p.preview?'ORIGINAL · 호환 미리보기':'ORIGINAL'}</span></div><PreviewSeekControls videoRef={sourceVideo} mediaKey={p.sourceUrl} label="원본 영상" onSeek={setSourceTime}/><div className="file-summary"><div className="file-icon"><Icon name="film"/></div><div><strong title={p.name}>{p.name}</strong><p>{p.source.width} × {p.source.height} <i/> {p.source.fps.toFixed(2)} fps <i/> {(p.source.bytes/1024/1024).toFixed(1)} MB</p></div><span className="duration">{time(p.source.duration)}</span></div></>:<button className={'dropzone '+(drag?'dragging':'')} disabled={disabled} onClick={load} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={drop}><div className="upload-orbit"><div><Icon name="upload" size={29}/></div></div><h3>이야기가 담긴 영상을 불러오세요</h3><p>영상 하나 또는 여러 개를 드래그하거나 선택하세요.</p><span className="select-file"><Icon name="folder" size={15}/> 영상 선택하기</span><small>MP4, MOV, AVI, MKV <span>·</span> 원본 파일은 그대로 보존됩니다</small></button>}
       </div>
-      {resultPanel}
+      {resultPanel()}
      </section>
      <aside className="controls-column panel"><div className="section-title"><h2><Icon name="spark" size={18}/> 편집 설정</h2><span className="tag">AI ASSIST</span></div><div className="controls-body"><label className="field-label">어떤 분위기로 편집할까요?</label><div className="style-options">{([{id:'basic',title:'기본 편집',sub:'자연스러운 흐름, 편안한 호흡',icon:'film',label:'RECOMMENDED'},{id:'fast',title:'빠른 편집',sub:'간결한 컷, 경쾌한 전개',icon:'spark',label:''},{id:'shorts',title:'쇼츠 · 릴스',sub:'세로 화면, 핵심 장면 중심',icon:'play',label:'9:16'}] as const).map(s=><button key={s.id} disabled={disabled||!p} onClick={()=>edit({style:s.id,settings:{aspect:s.id==='shorts'?'9:16':'source',zoom:s.id==='basic'?1:s.id==='fast'?1.08:1.05}})} className={'style-option '+((p?.style||'basic')===s.id?'chosen':'')}><span className="style-icon"><Icon name={s.icon} size={20}/></span><span><strong>{s.title}{s.label&&<em>{s.label}</em>}</strong><small>{s.sub}</small></span><span className="radio"/></button>)}</div>
       <div className="field-heading"><span><Icon name="text" size={16}/> 자동 자막</span><label className="switch"><input type="checkbox" aria-label="자막 사용" disabled={disabled||!p} checked={p?.settings.subtitles??true} onChange={e=>setting('subtitles',e.target.checked)}/><span/></label></div>
@@ -262,7 +313,7 @@ function App(){
       <button className="secondary longform-open" disabled={disabled||!p} onClick={()=>{setTab('longform');document.getElementById('edit-review')?.scrollIntoView({block:'start'});}}>유튜브 롱폼 초벌 편집</button>
      </div></aside>
     </div>
-    {(busy||p?.analyzed)&&<div className="progress-panel panel"><div><span className={busy?'spinner':'completed-mark'}>{!busy&&<Icon name="check" size={17}/>}</span><div><strong>{busy?progress.message:'분석 결과가 준비되었습니다'}</strong><p>{busy?'작업 내용은 PC 안에서 처리됩니다. 잠시 기다려 주세요.':`${p?.cuts.filter(c=>c.enabled).length||0}개 삭제 구간 · ${pending}개 검토 제안 · 모든 변경은 자동 저장됩니다.`}</p></div><b>{busy?`${Math.round(progress.percent)}%`:'READY'}</b></div><progress max={100} value={busy?progress.percent:100}/></div>}
+    {(!productionRunning&&(busy||p?.analyzed))&&<div className="progress-panel panel"><div><span className={busy?'spinner':'completed-mark'}>{!busy&&<Icon name="check" size={17}/>}</span><div><strong>{busy?progress.message:'분석 결과가 준비되었습니다'}</strong><p>{busy?'작업 내용은 PC 안에서 처리됩니다. 잠시 기다려 주세요.':`${p?.cuts.filter(c=>c.enabled).length||0}개 삭제 구간 · ${pending}개 검토 제안 · 모든 변경은 자동 저장됩니다.`}</p></div><b>{busy?`${Math.round(progress.percent)}%`:'READY'}</b></div><progress max={100} value={busy?progress.percent:100}/></div>}
     {p&&audit?.cutSummary&&<EditSummary summary={audit.cutSummary} project={p} formatTime={time}/>}
     <section className="review-panel panel" id="edit-review"><div className="section-title"><h2><Icon name="cut" size={19}/> 편집 검수</h2><div className="button-row"><span className="autosave"><span/> 자동 저장</span><button className="quiet" disabled={disabled||!p} onClick={()=>operate('undo')}><Icon name="restore" size={14}/> 이전 변경 되돌리기</button><button className="primary small-button" disabled={disabled||!p} onClick={()=>operate('render')}><Icon name="download" size={15}/> MP4 출력</button></div></div>
      {p?<><div className="timeline"><div className="timeline-ruler">{[0,.25,.5,.75,1].map(r=><span key={r}>{time(sourceDuration*r)}</span>)}</div><div className="timeline-track" role="slider" aria-label="원본 영상 타임라인" tabIndex={0} aria-valuemin={0} aria-valuemax={sourceDuration} aria-valuenow={sourceTime} onKeyDown={e=>{if(e.key==='ArrowRight')seek(Math.min(sourceDuration,sourceTime+1));if(e.key==='ArrowLeft')seek(Math.max(0,sourceTime-1));}} onClick={e=>{const rect=e.currentTarget.getBoundingClientRect();seek((e.clientX-rect.left)/rect.width*sourceDuration);}}><div className="timeline-base"/>{p.cuts.map(c=><div key={c.id} title={`${time(c.start)}–${time(c.end)} ${c.reason}`} className={'timeline-cut '+(c.enabled?'removed':'review')} style={{left:`${100*c.start/sourceDuration}%`,width:`${100*(c.end-c.start)/sourceDuration}%`}}/>)}{p.scenes.map(s=><div key={s} className="scene-tick" style={{left:`${100*s/sourceDuration}%`}}/>)}<div className="playhead" style={{left:`${100*sourceTime/sourceDuration}%`}}/></div><div className="timeline-legend"><span><i className="keep"/>보존</span><span><i className="remove"/>삭제</span><span><i className="review"/>보존 중인 제안</span><span><i className="scene"/>장면 전환</span><small>원본 기준 시간 · 클릭하여 이동</small></div></div>

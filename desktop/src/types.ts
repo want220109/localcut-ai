@@ -19,7 +19,7 @@ export interface Project {
   source:{path:string;duration:number;width:number;height:number;fps:number;aspect:string;hasAudio:boolean;bytes:number;capturedAt?:number|null};
   cuts:Cut[];captions:Caption[];transcript:Segment[];scenes:number[];warnings:string[];settings:Settings;
   model:{name:string;device:string}|null;output:{path:string;duration:number;revision:number}|null;
-  clips?:Clip[];sortOrder?:'capture'|'import'|'manual';sequenceOutline?:OutlineSection[];
+  clips?:Clip[];sortOrder?:'capture'|'import'|'manual';sequenceOutline?:OutlineSection[];autoLongform?:boolean;
 }
 export interface CutSummary {sourceDuration:number;outputDuration:number;removedDuration:number;appliedCount:number;reviewCount:number;intervalCount:number;noCutReason:string;analysisNeedsRefresh:boolean}
 export interface Audit {before:string;after:string;removed:{id:string;text:string;important:boolean}[];partial:{id:string;text:string;retained:number}[];importantRemoved:number;outputDuration:number;cutSummary?:CutSummary}

@@ -47,6 +47,10 @@ def dispatch(request, progress=lambda percent,message:None):
         p=create_sequence(store, request.get("sources"))
         return {"project": p, "audit": transcript_audit(p)}
     p=store.load(request["id"])
+    if action=="autoLongform":
+        from engine.auto_longform import produce_longform
+        p = produce_longform(store, p, request, progress)
+        return {"project": p, "audit": transcript_audit(p)}
     if action=="captionFrame":
         from media.caption_frame import caption_frame
         clip = None

@@ -40,14 +40,15 @@ interface Props {
  undo:()=>void;
  replace:()=>void;
  saveSubtitles:()=>void;
- result:React.ReactNode;
+ result:(exportBlocked?:boolean)=>React.ReactNode;
+ autoReviewRequest:number;
 }
 
 export function SequenceEditor({project,disabled,progress,duration,formatTime,edit,preview,connection,
- analyze,analyzeAll,analyzeEdits,previewCut,adjustCut,setCut,loadOutline,previewOutline,applyOutline,clearOutline,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
+ analyze,analyzeAll,analyzeEdits,previewCut,adjustCut,setCut,loadOutline,previewOutline,applyOutline,clearOutline,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result,autoReviewRequest}:Props) {
  const clips=project.clips!;
  const included=clips.filter(item=>item.enabled);
- const [step,setStep]=useState<Step>(included.some(needsCaptions)?'captions':'edit');
+ const [step,setStep]=useState<Step>(project.autoLongform?'save':included.some(needsCaptions)?'captions':'edit');
  const [selected,setSelected]=useState(included[0].id);
  const [previewUrl,setPreviewUrl]=useState('');
  const [connectionData,setConnectionData]=useState<SequenceConnection|null>(null);
@@ -75,6 +76,13 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
  }).length,0);
  const position=included.findIndex(item=>item.id===selected);
  const next=position>=0?included[position+1]:undefined;
+
+ useEffect(()=>{
+  if(autoReviewRequest)setStep('save');
+ },[autoReviewRequest]);
+ useEffect(()=>{
+  if(step==='save'&&autoReviewRequest)document.getElementById('auto-review')?.scrollIntoView({block:'start'});
+ },[autoReviewRequest,step]);
 
  useEffect(()=>{setConnectionData(null);},[project.revision]);
  useEffect(()=>{
@@ -292,24 +300,28 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
 
   {step==='save'&&<>
    <section className="panel sequence-stage">
-    <div className="section-title"><h2>최종 영상 저장</h2></div>
+    <div className="section-title" id={project.autoLongform?'auto-review':undefined}><h2>{project.autoLongform?'초안 검토하기':'최종 영상 저장'}</h2></div>
     <div className="sequence-body">
      <p className="sequence-status">{hasOutline?'확정한 롱폼 구성':`${included.length}개 영상`} · {formatTime(duration)} · {project.settings.resolution}p · {project.settings.subtitles?'자막 포함 설정':'자막 없이 저장'}</p>
      {project.settings.subtitles&&pending.length>0&&<div className="sequence-reminder">
       <span>자막을 만들지 않은 영상 {pending.length}개는 자막 없이 합쳐집니다.</span>
       <button className="secondary" disabled={disabled} onClick={()=>goTo('captions')}>자막 생성으로 돌아가기</button>
      </div>}
-     {project.settings.subtitles&&unsavedCount>0&&<div className="sequence-reminder">
+     {(project.settings.subtitles||project.autoLongform)&&unsavedCount>0&&<div className="sequence-reminder">
       <span>수정한 자막 {unsavedCount}줄이 아직 저장되지 않았습니다.</span>
-      <button className="secondary" disabled={disabled} onClick={()=>goTo('edit')}>자막 편집으로 돌아가기</button>
+      <button className="secondary" disabled={disabled} onClick={()=>goTo('captions')}>자막 편집으로 돌아가기</button>
      </div>}
      <div className="button-row sequence-actions">
+      {project.autoLongform&&<>
+       <button className="secondary" disabled={disabled} onClick={()=>goTo('captions')}>대본·자막 수정</button>
+       <button className="secondary" disabled={disabled} onClick={()=>goTo('edit')}>컷·순서 수정</button>
+      </>}
       {hasCurrentOutput&&<button className="quiet" disabled={disabled} onClick={saveSubtitles}>SRT 저장</button>}
       <button className="secondary" disabled={disabled} onClick={render}>{hasCurrentOutput?'미리보기 다시 만들기':'출력 미리보기 만들기'}</button>
      </div>
     </div>
    </section>
-   {result}
+   {result(!!project.autoLongform&&unsavedCount>0)}
   </>}
  </div>;
 }

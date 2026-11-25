@@ -472,3 +472,92 @@ def test_sequence_clip_volume_balance_measures_the_retained_audio(tmp_path, file
     gains = json.loads(Path(output["report"]).read_text(encoding="utf-8"))["clipAudioGainDb"]
     assert gains[quiet["id"]] > 0 and gains[loud["id"]] < 0 and silent["id"] not in gains
     assert [hashlib.sha256(source.read_bytes()).hexdigest() for source in sources] == digests
+
+
+@pytest.mark.integration
+def test_auto_longform_creates_playable_draft_from_one_video_and_can_undo(tmp_path, files):
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("create", source=str(files[1]))
+    identifier = project["id"]
+    project = call("edit", id=identifier, changes={"settings": {"resolution": "720"}})["project"]
+    original = files[1].read_bytes()
+    draft = call("autoLongform", id=identifier, revision=project["revision"], model="small")["project"]
+    assert draft["autoLongform"] and draft["analyzed"] and len(draft["clips"]) == 1
+    assert draft["clips"][0]["analyzed"] and draft["sequenceOutline"][0]["enabled"]
+    assert draft["settings"]["subtitles"] and draft["settings"]["normalize"]
+    assert draft["output"]["revision"] == draft["revision"]
+    output = probe(draft["output"]["path"])
+    assert (output["width"], output["height"]) == (1280, 720)
+    assert output["duration"] == pytest.approx(clip_frames(draft["clips"][0]) / 30, abs=.03)
+    assert files[1].read_bytes() == original
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("autoLongform", id=identifier, revision=project["revision"], model="small")
+    previous = call("undo", id=identifier)["project"]
+    assert "clips" not in previous and not previous.get("autoLongform")
+    assert previous["source"] == project["source"]
+
+
+@pytest.mark.integration
+def test_auto_longform_retry_uses_saved_analysis_and_final_uses_corrected_text(tmp_path, files, monkeypatch):
+    from engine import auto_longform
+
+    path = tmp_path / "음성이 있는 여행 원본.mp4"
+    subprocess.run([binary("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "color=red:s=320x180:r=25:d=10",
+                    "-f", "lavfi", "-i", "sine=f=440:r=48000:d=10",
+                    "-af", "volume=0:enable='between(t,2.8,6.35)'",
+                    "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", "-c:a", "aac", str(path)], check=True)
+
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(files[2]), str(path)])["project"]
+    identifier = project["id"]
+    caption = {"id": "c0", "start": .08, "end": .65, "text": "시청해 주셔서 감사합니다", "textEdited": True}
+    project["clips"][0].update(captions=[caption], analyzed=True)
+    project["settings"]["resolution"] = "720"
+    store = Store(tmp_path)
+    store.save(project)
+    recognized = []
+
+    def transcribe(source, *_args, **_kwargs):
+        recognized.append(source["path"])
+        lines = [
+            {"id": "s0", "start": .6, "end": 2.7, "text": "안녕하세요 오늘 여행입니다", "confidence": .95},
+            {"id": "s1", "start": 6.45, "end": 8.45, "text": "먼저 전망을 살펴봅니다", "confidence": .96},
+        ]
+        return lines, [[.55, 2.75], [6.4, 8.5]], {"name": "small", "device": "cpu"}
+
+    monkeypatch.setattr("engine.auto_longform.check_model", lambda *_: None)
+    monkeypatch.setattr("engine.analysis.transcribe", transcribe)
+    render = auto_longform.sequence_action
+
+    def unavailable(*_args):
+        raise RuntimeError("첫 출력 일시 실패")
+
+    monkeypatch.setattr(auto_longform, "sequence_action", unavailable)
+    with pytest.raises(RuntimeError, match="첫 출력"):
+        call("autoLongform", id=identifier, revision=0, model="small")
+    prepared = store.load(identifier)
+    first, second = prepared["clips"]
+    assert prepared["autoLongform"] and prepared["output"] is None
+    assert first["captions"] == [caption]
+    assert prepared["sequenceOutline"][0]["clipId"] == second["id"]
+    assert any(cut["enabled"] for cut in second["cuts"])
+    assert recognized == [str(path)]
+
+    monkeypatch.setattr(auto_longform, "sequence_action", render)
+    draft = call("autoLongform", id=identifier, revision=prepared["revision"], model="small")["project"]
+    assert recognized == [str(path)]
+    assert draft["revision"] == prepared["revision"]
+    assert draft["output"]["revision"] == draft["revision"]
+    original_output = draft["output"]["path"]
+    edited = call("sequenceCaption", id=identifier, revision=draft["revision"], clipId=second["id"],
+                  captionId=second["captions"][0]["id"], text="사용자가 확인한 최종 자막")["project"]
+    assert edited["output"]["revision"] != edited["revision"]
+    result = call("render", id=identifier)["project"]
+    assert result["output"]["revision"] == edited["revision"]
+    assert result["output"]["path"] != original_output
+    assert "사용자가 확인한 최종 자막" in Path(result["output"]["srt"]).read_text(encoding="utf-8-sig")
+    assert result["sequenceOutline"] == draft["sequenceOutline"]

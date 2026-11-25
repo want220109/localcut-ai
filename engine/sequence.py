@@ -93,8 +93,8 @@ def seconds_intervals(frames):
 
 
 def validate_clips(clips):
-    if not isinstance(clips, list) or not 2 <= len(clips) <= MAX_CLIPS:
-        raise ValueError("여러 원본 작업에는 2~100개 영상이 필요합니다.")
+    if not isinstance(clips, list) or not 1 <= len(clips) <= MAX_CLIPS:
+        raise ValueError("영상 작업에는 1~100개 영상이 필요합니다.")
     identifiers = set()
     for clip in clips:
         if not ID_RE.fullmatch(clip["id"]) or clip["id"] in identifiers or type(clip["enabled"]) is not bool:
@@ -222,11 +222,39 @@ def analyze_sequence(store, project, request, progress):
     return process_clips(store, project, pending, progress, work, "자막 처리 완료")
 
 
-def analyze_sequence_edits(store, project, request, progress):
+def plan_clip_edits(store, project, clip, model, report):
     from engine.analysis import silence_ranges, visual_analysis
     from engine.longform import intersects, occupied
     from engine.planner import plan
 
+    source = clip["source"]
+    verify_source(source)
+    if source["hasAudio"] and "speech" not in clip:
+        recognize_clip(store, project, clip, model, report)
+    speech = clip.get("speech", {})
+    # The planner annotates its input, so the cached ASR stays independent.
+    transcript = [dict(item) for item in speech.get("transcript", [])]
+    diagnostics = {}
+    silences, scenes, motion = [], [], []
+    if transcript:
+        duration = source["duration"]
+        scenes, motion = visual_analysis(source["path"], duration,
+                                         lambda p, msg: report(79 + p * .35, msg))
+        report(92, "긴 침묵과 대화 구간 비교 중")
+        silences = silence_ranges(source["path"], duration)
+    cuts, _ = plan(source, transcript, silences, scenes, motion, speech.get("vad", []), "basic", diagnostics)
+    protected = occupied([*transcript, *clip["captions"]], source["duration"])
+    for cut in cuts:
+        if cut["kind"] != "silence":
+            cut.update(enabled=False, review=True)
+            continue
+        # Keep corrected subtitles and whole utterances protected in the automatic pass.
+        if cut["enabled"] and intersects(protected, cut["start"], cut["end"]):
+            cut.update(enabled=False, review=True, reason="자막 또는 발화 시간과 겹치는 구간 · 검토 후 적용")
+    clip.update(cuts=cuts, cutNote=diagnostics.get("noCutReason", "") if not cuts else "")
+
+
+def analyze_sequence_edits(store, project, request, progress):
     require_revision(project, request.get("revision"))
     pending = [clip for clip in project["clips"] if clip["enabled"] and "cuts" not in clip]
     model = request["model"]
@@ -235,31 +263,7 @@ def analyze_sequence_edits(store, project, request, progress):
         check_model(store, model)
 
     def work(clip, report):
-        source = clip["source"]
-        verify_source(source)
-        if source["hasAudio"] and "speech" not in clip:
-            recognize_clip(store, project, clip, model, report)
-        speech = clip.get("speech", {})
-        # The planner annotates its input, so the cached ASR stays independent.
-        transcript = [dict(item) for item in speech.get("transcript", [])]
-        diagnostics = {}
-        silences, scenes, motion = [], [], []
-        if transcript:
-            duration = source["duration"]
-            scenes, motion = visual_analysis(source["path"], duration,
-                                             lambda p, msg: report(79 + p * .35, msg))
-            report(92, "긴 침묵과 대화 구간 비교 중")
-            silences = silence_ranges(source["path"], duration)
-        cuts, _ = plan(source, transcript, silences, scenes, motion, speech.get("vad", []), "basic", diagnostics)
-        protected = occupied([*transcript, *clip["captions"]], source["duration"])
-        for cut in cuts:
-            if cut["kind"] != "silence":
-                cut.update(enabled=False, review=True)
-                continue
-            # Keep corrected subtitles and whole utterances protected in the automatic pass.
-            if cut["enabled"] and intersects(protected, cut["start"], cut["end"]):
-                cut.update(enabled=False, review=True, reason="자막 또는 발화 시간과 겹치는 구간 · 검토 후 적용")
-        clip.update(cuts=cuts, cutNote=diagnostics.get("noCutReason", "") if not cuts else "")
+        plan_clip_edits(store, project, clip, model, report)
 
     return process_clips(store, project, pending, progress, work, "AI 편집점 분석 완료")
 

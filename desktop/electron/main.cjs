@@ -157,6 +157,12 @@ async function request(event,message) {
   if(action==='updateStatus') return updateController.state;
   if(action==='update') return updateController.action(message.operation,message.channel);
   const id=projectId(message.id);
+  if(action==='autoLongform') {
+    const {revision,model}=message;
+    if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 작업을 다시 열어 주세요.');
+    if(!['tiny','small'].includes(model)) throw new Error('지원하지 않는 모델입니다.');
+    return decorate(await engine({action,id,revision,model}));
+  }
   if(['sequenceOutlineDraft','sequenceOutlinePreview','sequenceApplyOutline','sequenceClearOutline'].includes(action)) {
     const {revision,rows,rowId,fresh=false}=message;
     if(!Number.isSafeInteger(revision)||revision<0||typeof fresh!=='boolean')
@@ -177,7 +183,7 @@ async function request(event,message) {
     const {revision,rows,clipId,captionId,model,text,cutId,enabled,start,end}=message;
     if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
     if(action==='editSequence') {
-      if(!Array.isArray(rows)||rows.length<2||rows.length>100||
+      if(!Array.isArray(rows)||rows.length<1||rows.length>100||
          rows.some(row=>!row||typeof row.id!=='string'||!/^[a-f0-9]{32}$/.test(row.id)||typeof row.enabled!=='boolean'))
         throw new Error('클립 순서를 확인해 주세요.');
       return decorate(await engine({action,id,revision,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));

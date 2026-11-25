@@ -142,3 +142,7 @@
 .sequence-cut-adjust h3{margin:0 0 8px}
 .sequence-audio-option p,.sequence-cut-adjust p{margin:6px 0 0}
 .sequence-cut-list li>.button-row{flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+
+.auto-production{margin-bottom:16px;border-color:rgba(169,225,72,.25)}
+.auto-production .sequence-body>p{margin:0}
+.auto-production .sequence-progress{display:grid;gap:8px}
