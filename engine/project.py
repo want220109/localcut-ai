@@ -62,6 +62,9 @@ def validate(p):
     if "clips" in p:
         from engine.sequence import validate_clips
         validate_clips(p["clips"])
+        if "sequenceOutline" in p:
+            from engine.sequence_outline import validate_outline
+            validate_outline(p)
     settings = p["settings"] = with_defaults(p["settings"])
     validate_style(settings)
     finite(settings["fontSize"], FONT_SIZE_LIMITS["min"], FONT_SIZE_LIMITS["max"])
@@ -161,7 +164,7 @@ def cut_summary(p):
 def transcript_audit(p):
     if "clips" in p:
         from engine.sequence import sequence_audit
-        return sequence_audit(p["clips"])
+        return sequence_audit(p)
     intervals = keeps(p)
     before, after, removed, partial = [], [], [], []
     for s in p["transcript"]:

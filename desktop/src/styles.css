@@ -131,3 +131,9 @@
 .sequence-cut-list li strong,.sequence-cut-list li small{display:block}
 .sequence-cut-list li small{margin-top:4px;color:#a3afbf}
 .sequence-cut-list li button{flex-shrink:0}
+
+.sequence-outline .cut-connection-preview{margin:12px 0 0}
+.outline-list .checkbox strong,.outline-list .checkbox small{overflow-wrap:anywhere}
+.outline-row-actions{flex:none}
+.outline-row-actions .quiet{border:1px solid var(--line);border-radius:5px;padding:6px 9px}
+@media(max-width:880px){.outline-list li{align-items:flex-start;flex-direction:column}.outline-row-actions{align-self:flex-end}}

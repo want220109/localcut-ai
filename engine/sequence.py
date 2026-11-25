@@ -11,10 +11,14 @@ MAX_CLIPS = 100
 SEQUENCE_FPS = 30
 
 
+def source_frames(clip):
+    return max(1, round(clip["source"]["duration"] * SEQUENCE_FPS))
+
+
 def clip_intervals(clip):
     """Kept ranges in output frames, expressed in each clip's source timeline."""
     duration = clip["source"]["duration"]
-    total_frames = max(1, round(duration * SEQUENCE_FPS))
+    total_frames = source_frames(clip)
     kept, cursor = [], 0
     for a, b in merged_ranges(clip.get("cuts", []), duration):
         start = min(total_frames, ceil(a * SEQUENCE_FPS - 1e-6))
@@ -31,8 +35,53 @@ def clip_intervals(clip):
     return kept
 
 
+def frame_count(spans):
+    return sum(end - start for start, end in spans)
+
+
 def clip_frames(clip):
-    return sum(end - start for start, end in clip_intervals(clip))
+    return frame_count(clip_intervals(clip))
+
+
+def intersect_intervals(spans, start, end):
+    return [(max(a, start), min(b, end)) for a, b in spans if a < end and b > start]
+
+
+def slice_intervals(spans, start, end):
+    """Convert a range on a kept timeline into source-frame intervals."""
+    excerpt, offset = [], 0
+    for a, b in spans:
+        length = b - a
+        left, right = max(start, offset), min(end, offset + length)
+        if right > left:
+            excerpt.append((a + left - offset, a + right - offset))
+        offset += length
+        if offset >= end:
+            break
+    return excerpt
+
+
+def sequence_timeline(project):
+    clips = {clip["id"]: clip for clip in project["clips"] if clip["enabled"]}
+    spans = {key: clip_intervals(clip) for key, clip in clips.items()}
+    if "sequenceOutline" not in project:
+        return [(clip, spans[key]) for key, clip in clips.items()]
+    timeline = []
+    for row in project["sequenceOutline"]:
+        key = row["clipId"]
+        if row["enabled"] and key in clips:
+            excerpt = intersect_intervals(spans[key], row["startFrame"], row["endFrame"])
+            if not excerpt:
+                continue
+            if timeline and timeline[-1][0]["id"] == key and timeline[-1][1][-1][1] <= excerpt[0][0]:
+                previous = timeline[-1][1]
+                if previous[-1][1] == excerpt[0][0]:
+                    previous[-1] = (previous[-1][0], excerpt[0][1])
+                    excerpt = excerpt[1:]
+                previous.extend(excerpt)
+            else:
+                timeline.append((clips[key], excerpt))
+    return timeline
 
 
 def seconds_intervals(frames):
@@ -75,12 +124,14 @@ def create_sequence(store, paths):
     return store.create(clips[0]["source"], clips=clips, sort_order="capture" if by_capture else "import")
 
 
-def sequence_audit(clips):
-    length = sum(clip_frames(clip) for clip in clips if clip["enabled"]) / SEQUENCE_FPS
-    before = (cue["text"] for clip in clips for cue in clip["captions"])
+def sequence_audit(project):
     from subtitles.captions import remap
-    after = (cue["text"] for clip in clips if clip["enabled"]
-             for cue in remap(clip["captions"], seconds_intervals(clip_intervals(clip))))
+
+    timeline = sequence_timeline(project)
+    length = sum(frame_count(spans) for _, spans in timeline) / SEQUENCE_FPS
+    before = (cue["text"] for clip in project["clips"] for cue in clip["captions"])
+    after = (cue["text"] for clip, spans in timeline
+             for cue in remap(clip["captions"], seconds_intervals(spans)))
     return {"before": "\n".join(before), "after": "\n".join(after), "outputDuration": length,
             "removed": [], "partial": [], "importantRemoved": 0}
 
@@ -213,9 +264,8 @@ def sequence_action(store, project, request, progress):
     action = request["action"]
     if action == "render":
         from media.sequence import render_sequence
-        for clip in project["clips"]:
-            if clip["enabled"]:
-                verify_source(clip["source"])
+        for clip in {clip["id"]: clip for clip, _ in sequence_timeline(project)}.values():
+            verify_source(clip["source"])
         project["output"] = render_sequence(project, store.directory(project["id"]), progress)
         return store.save(project)
     require_revision(project, request.get("revision"))

@@ -4,7 +4,7 @@ import type {Clip,SequenceCutPreview} from './types';
 interface Props {
  clips:Clip[];
  revision:number;
- duration:number;
+ duration:number|null;
  disabled:boolean;
  modelReady:boolean;
  showModels:()=>void;
@@ -28,7 +28,7 @@ export function SequenceCuts({clips,revision,duration,disabled,modelReady,showMo
  const requiresModel=!modelReady&&pending.some(clip=>clip.source.hasAudio&&!clip.speechReady);
  const clip=clips.find(item=>item.id===selected)??clips.find(item=>item.cuts?.length)??clips[0];
  const original=clips.reduce((seconds,item)=>seconds+Math.max(1,Math.round(item.source.duration*30))/30,0);
- const savedTime=Math.max(0,original-duration);
+ const savedTime=Math.max(0,original-(duration??original));
 
  useEffect(()=>{setPreviewData(null);},[revision]);
  useEffect(()=>{
@@ -58,7 +58,7 @@ export function SequenceCuts({clips,revision,duration,disabled,modelReady,showMo
    </div>}
    {pending.length<clips.length&&<>
     <p className="sequence-status">분석 {clips.length-pending.length}/{clips.length}개 · 컷 적용 {applied}개 · 검토 {reviewed.length-applied}개</p>
-    <p className="small muted">원본 {formatTime(original)} → 예상 {formatTime(duration)}{savedTime>.01&&` · ${formatTime(savedTime)} 단축`}</p>
+    {duration!==null&&<p className="small muted">원본 {formatTime(original)} → 예상 {formatTime(duration)}{savedTime>.01&&` · ${formatTime(savedTime)} 단축`}</p>}
     <label>편집 구간을 볼 클립<select aria-label="편집 구간을 볼 클립" value={clip.id} disabled={disabled}
      onChange={event=>{setSelected(event.target.value);setPreviewData(null);}}>
      {clips.map(item=><option key={item.id} value={item.id}>{item.name} · {item.cuts?`후보 ${item.cuts.length}개`:'분석 전'}</option>)}

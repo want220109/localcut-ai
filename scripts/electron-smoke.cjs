@@ -339,6 +339,66 @@ async function checkSequenceCuts(app,page,ffmpeg,testRoot){
  assert.equal(result.project.clips[0].captions[0].text,'교정한 첫 대화');
  console.log('Multi-video AI cut suggestion, automatic trim, local preview, restore, and shortened MP4 passed');
 }
+async function checkSequenceOutline(app,page,testRoot){
+ const clips=[
+  ['구성-도입.mp4','여행-출발.mp4','안녕하세요 오늘의 여행을 시작합니다'],
+  ['구성-본론.mp4','여행-도착.mp4','먼저 오늘 갈 장소를 소개합니다'],
+  ['구성-마무리.mp4','여행-식사.mp4','시청해 주셔서 감사합니다'],
+ ];
+ const files=await Promise.all(clips.map(async([name,original])=>{
+  const target=path.join(testRoot,name);
+  await fs.copyFile(path.join(testRoot,original),target);
+  return target;
+ }));
+ const imported=await page.evaluate(paths=>window.localcut.call('importFiles',{paths}),files);
+ const {id,name}=imported.project;
+ const data=await app.evaluate(({app})=>app.getPath('userData'));
+ const filename=path.join(data,'workspace','jobs',id,'project.json');
+ const fixture=JSON.parse(await fs.readFile(filename,'utf8'),(key,value,context)=>key==='mtimeNs'?JSON.rawJSON(context.source):value);
+ fixture.settings.resolution='720';
+ for(const clip of fixture.clips){
+  const text=clips.find(([name])=>name===clip.name)[2];
+  clip.analyzed=true;
+  clip.captions=[{id:'c0',start:.1,end:1.75,text,textEdited:true}];
+ }
+ await fs.writeFile(filename,JSON.stringify(fixture),'utf8');
+ assert.equal(fixture.clips[0].name,clips[1][0],'Fixture starts with the body clip in capture order');
+ const open=async()=>{
+  await page.reload();
+  await page.locator('.history-item').filter({hasText:name}).click();
+ };
+ await open();
+ const outline=page.getByRole('region',{name:'여러 영상 롱폼 구성',exact:true});
+ const rows=outline.getByRole('listitem');
+ await outline.getByRole('button',{name:'롱폼 구성 초안 만들기',exact:true}).click();
+ await outline.getByText('포함할 구간 3/3개 · 예상 00:06.0',{exact:true}).waitFor();
+ assert.deepEqual(await rows.locator('strong').allTextContents(),['도입 · 구성-도입.mp4','본론 · 구성-본론.mp4','마무리 · 구성-마무리.mp4']);
+ await rows.nth(1).getByRole('button',{name:'구간 미리보기',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.sequence-outline video')?.readyState>=1);
+ const uncommitted=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ assert.equal(uncommitted.project.sequenceOutline,undefined);
+ await outline.getByRole('button',{name:'구간 3 위로',exact:true}).click();
+ await outline.getByRole('button',{name:'구간 2 위로',exact:true}).click();
+ await outline.getByRole('checkbox',{name:'구간 3 포함',exact:true}).uncheck();
+ await page.getByRole('button',{name:'설정 확인 단계',exact:true}).click();
+ await page.getByRole('button',{name:'영상 편집 단계',exact:true}).click();
+ await outline.getByText('포함할 구간 2/3개 · 예상 00:04.0',{exact:true}).waitFor();
+ await outline.getByRole('button',{name:'롱폼 구성 확정',exact:true}).click();
+ await outline.getByText('롱폼 구성 적용 중 · 00:04.0',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'MP4 저장 단계',exact:true}).click();
+ const target=path.join(testRoot,'확정한 롱폼 구성.mp4');
+ await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},target);
+ await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+ await page.locator('.export-feedback.saved').getByText(target,{exact:true}).waitFor({timeout:60000});
+ const result=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ assert.ok(Math.abs(result.project.output.duration-4)<.1);
+ assert.deepEqual(result.audit.after.split('\n'),[clips[2][2],clips[0][2]]);
+ await open();
+ await outline.getByRole('button',{name:'확정 구성 다시 열기',exact:true}).click();
+ await outline.getByText('포함할 구간 2/3개 · 예상 00:04.0',{exact:true}).waitFor();
+ assert.deepEqual(await rows.locator('strong').allTextContents(),['마무리 · 구성-마무리.mp4','도입 · 구성-도입.mp4','본론 · 구성-본론.mp4']);
+ console.log('Multi-video long-form sections use corrected captions, preview safely, persist order, and render the selected output');
+}
 async function checkRecentHistory(page){
  const work='여행-도착 외 2개';
  const recent=page.getByRole('region',{name:'최근 작업 목록',exact:true});
@@ -538,8 +598,9 @@ async function main(){
   await checkSequence(app,reopened,ffmpeg,testRoot);
   await checkRecentHistory(reopened);
   await checkSequenceCuts(app,reopened,ffmpeg,testRoot);
+  await checkSequenceOutline(app,reopened,testRoot);
   assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,sequenceCaptionsPassed:true,sequenceCutsPassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,sequenceCaptionsPassed:true,sequenceCutsPassed:true,sequenceOutlinePassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } catch(error){
   console.error(error);

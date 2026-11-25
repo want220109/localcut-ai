@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,SequenceCutPreview,Settings,TranscriptOperation,Update} from './types';
+import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,SequenceCutPreview,SequenceOutlineDraft,SequenceOutlinePreview,Settings,TranscriptOperation,Update} from './types';
 import './styles.css';
 import {BasicSubtitleControls,SubtitleControls} from './SubtitleControls';
 import {EditSummary} from './EditSummary';
@@ -85,11 +85,11 @@ function App(){
   });
   return saved;
  }
- async function sequenceMedia<T>(action:string,clipId:string,cutId?:string):Promise<T|null>{
+ async function readSequence<T>(action:string,fields:Record<string,unknown>):Promise<T|null>{
   if(!project||busy)return null;
   outputVideo.current?.pause();
   let result:T|null=null;
-  await task(async()=>{result=await call<T>(action,{id:project.id,revision:project.revision,clipId,cutId});});
+  await task(async()=>{result=await call<T>(action,{id:project.id,revision:project.revision,...fields});});
   return result;
  }
  async function editTranscript(operation:TranscriptOperation,lineIds:string[]){
@@ -229,12 +229,16 @@ function App(){
     {p?.clips?
      <SequenceEditor key={p.id} project={p} disabled={disabled} progress={busy?progress:null} duration={outDuration} formatTime={time}
       edit={async(rows:ClipSelection[])=>{await changeSequence('editSequence',{rows});}}
-      preview={async id=>(await sequenceMedia<{url:string}>('sequencePreview',id))?.url??null}
-      connection={id=>sequenceMedia<SequenceConnection>('sequenceConnection',id)}
+      preview={async id=>(await readSequence<{url:string}>('sequencePreview',{clipId:id}))?.url??null}
+      connection={id=>readSequence<SequenceConnection>('sequenceConnection',{clipId:id})}
       analyzeAll={async()=>{await changeSequence('sequenceAnalyzeAll',{model});}}
       analyzeEdits={async()=>{await changeSequence('sequenceAnalyzeEdits',{model});}}
-      previewCut={(clipId,cutId)=>sequenceMedia<SequenceCutPreview>('sequenceCutPreview',clipId,cutId)}
+      previewCut={(clipId,cutId)=>readSequence<SequenceCutPreview>('sequenceCutPreview',{clipId,cutId})}
       setCut={async(clipId,cutId,enabled)=>{await changeSequence('sequenceSetCut',{clipId,cutId,enabled});}}
+      loadOutline={fresh=>readSequence<SequenceOutlineDraft>('sequenceOutlineDraft',{fresh})}
+      previewOutline={(rowId,fresh)=>readSequence<SequenceOutlinePreview>('sequenceOutlinePreview',{rowId,fresh})}
+      applyOutline={(rows,fresh)=>changeSequence('sequenceApplyOutline',{rows,fresh})}
+      clearOutline={()=>changeSequence('sequenceClearOutline',{})}
       modelReady={!!selectedModel?.ready} showModels={()=>{setSettingsOpen(true);window.scrollTo(0,0);}}
       analyze={async clipId=>{await changeSequence('sequenceAnalyze',{clipId,model});}}
       saveCaption={(clipId,caption)=>changeSequence('sequenceCaption',{clipId,captionId:caption.id,text:caption.text})}

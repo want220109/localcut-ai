@@ -277,3 +277,105 @@ def test_sequence_ai_cuts_preview_toggle_and_export(tmp_path, files, monkeypatch
     retry = call("sequenceAnalyzeEdits", id=key["id"], revision=restored["project"]["revision"], model="small")
     assert retry["audit"]["outputDuration"] == original_length
     assert hashlib.sha256(source.read_bytes()).hexdigest() == original
+
+
+@pytest.mark.integration
+def test_longform_outline_reorders_corrected_sections_and_updates_video_and_captions(tmp_path, files):
+    from engine.sequence import sequence_timeline
+
+    original_sources = [hashlib.sha256(path.read_bytes()).hexdigest() for path in files]
+
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(files[2]), str(files[1]), str(files[0])])["project"]
+    closing, body, opening = project["clips"]
+    fallback = call("sequenceOutlineDraft", id=project["id"], revision=0, fresh=True)
+    assert not fallback["hasCaptions"]
+    assert [row["clipId"] for row in fallback["rows"]] == [clip["id"] for clip in project["clips"]]
+    for clip, start, end, text in (
+        (closing, .066, .65, "시청해 주셔서 감사합니다"),
+        (body, .1, 1.35, "먼저 작업에 필요한 두 가지를 소개합니다"),
+        (opening, .1, .8, "안녕하세요 오늘의 브이로그입니다"),
+    ):
+        clip.update(analyzed=True, captions=[{"id": "c0", "start": start, "end": end, "text": text, "textEdited": True}])
+    # Existing AI cuts must survive generation and confirmation.
+    opening["cuts"] = [{"id": "kept-edit", "start": .84, "end": .96, "kind": "silence", "enabled": True, "review": False}]
+    project["settings"]["resolution"] = "720"
+    store = Store(tmp_path)
+    store.save(project)
+    key = {"id": project["id"], "revision": project["revision"]}
+    filename = store.directory(key["id"]) / "project.json"
+    original_data = filename.read_bytes()
+
+    draft = call("sequenceOutlineDraft", **key, fresh=True)
+    rows = draft["rows"]
+    assert draft["hasCaptions"]
+    assert [row["role"] for row in rows] == ["도입", "본론", "마무리"]
+    assert [row["clipId"] for row in rows] == [opening["id"], body["id"], closing["id"]]
+    assert rows[0]["excerpt"] == opening["captions"][0]["text"]
+    assert filename.read_bytes() == original_data
+
+    preview = call("sequenceOutlinePreview", **key, fresh=True, rowId=rows[1]["id"])
+    preview_file = tmp_path / "본론 미리보기.mp4"
+    preview_file.write_bytes(base64.b64decode(preview["video"]))
+    assert probe(preview_file)["duration"] == pytest.approx(rows[1]["seconds"], abs=.08)
+    assert filename.read_bytes() == original_data
+
+    excluded = [{"id": row["id"], "enabled": False} for row in rows]
+    with pytest.raises(ValueError, match="한 개 이상"):
+        call("sequenceApplyOutline", **key, fresh=True, rows=excluded)
+    assert filename.read_bytes() == original_data
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("sequenceApplyOutline", id=key["id"], revision=key["revision"] + 1, fresh=True, rows=excluded)
+
+    selected = [{"id": row["id"], "enabled": row["role"] != "본론"} for row in reversed(rows)]
+    fixed = call("sequenceApplyOutline", **key, fresh=True, rows=selected)
+    assert [item["id"] for item, _ in sequence_timeline(fixed["project"])] == [closing["id"], opening["id"]]
+    assert fixed["project"]["clips"] == project["clips"]
+    assert fixed["audit"]["outputDuration"] == pytest.approx(rows[0]["seconds"] + rows[2]["seconds"])
+    assert fixed["audit"]["after"].splitlines() == [closing["captions"][0]["text"], opening["captions"][0]["text"]]
+    result = call("render", id=key["id"])["project"]["output"]
+    assert probe(result["path"])["duration"] == pytest.approx(fixed["audit"]["outputDuration"], abs=.08)
+
+    def pixel(time):
+        return subprocess.check_output([binary("ffmpeg"), "-v", "error", "-ss", str(time), "-i", result["path"],
+                                        "-vf", "crop=2:2:640:120,format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"])[:3]
+
+    initial = pixel(.25)
+    assert initial[1] > 90 and initial[0] < 20
+    assert pixel(rows[2]["seconds"] + .25)[0] > 220
+    assert "시청해 주셔서 감사합니다" in Path(result["srt"]).read_text(encoding="utf-8-sig")
+    assert "먼저 작업" not in Path(result["srt"]).read_text(encoding="utf-8-sig")
+    report = json.loads(Path(result["report"]).read_text(encoding="utf-8"))
+    assert [row["id"] for row in report["timeline"]] == [closing["id"], opening["id"]]
+    reopened = call("sequenceOutlineDraft", id=key["id"], revision=fixed["project"]["revision"], fresh=False)
+    assert [(row["id"], row["enabled"]) for row in reopened["rows"]] == [(row["id"], row["enabled"]) for row in selected]
+    cleared = call("sequenceClearOutline", id=key["id"], revision=fixed["project"]["revision"])
+    assert "sequenceOutline" not in cleared["project"] and cleared["project"]["clips"] == project["clips"]
+    undone = call("undo", id=key["id"])["project"]
+    assert undone["sequenceOutline"] == fixed["project"]["sequenceOutline"]
+    assert [hashlib.sha256(path.read_bytes()).hexdigest() for path in files] == original_sources
+
+
+def test_longform_outline_splits_a_clip_at_saved_text_boundaries_and_preserves_existing_cut(files, tmp_path):
+    from engine.sequence_outline import new_outline
+
+    project = dispatch({"root": str(tmp_path), "action": "createSequence", "sources": [str(path) for path in files]})["project"]
+    clip = project["clips"][0]
+    # Place both explicit transitions within a single continuous video.
+    clip["source"] = dict(clip["source"], duration=30)
+    for other in project["clips"][1:]:
+        other["source"] = dict(other["source"], duration=1)
+    clip["captions"] = [
+        {"id": "c0", "start": .1, "end": 2.5, "text": "오늘은 주제를 설명합니다"},
+        {"id": "c1", "start": 5, "end": 7, "text": "먼저 준비물을 살펴봅니다"},
+        {"id": "c2", "start": 26, "end": 28, "text": "정리하면 이렇습니다"},
+    ]
+    clip["cuts"] = [{"id": "d0", "start": 8, "end": 11, "enabled": True, "review": False}]
+    drafts = new_outline(project)
+    own = [row for row in drafts if row["clipId"] == clip["id"]]
+    assert [(row["role"], row["startFrame"], row["endFrame"]) for row in own] == [
+        ("도입", 0, 150), ("본론", 150, 780), ("마무리", 780, 900),
+    ]
+    assert sum(row["endFrame"] - row["startFrame"] for row in own) == 30 * 30

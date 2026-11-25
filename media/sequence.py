@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from engine.project import atomic_json
-from engine.sequence import SEQUENCE_FPS, clip_intervals, seconds_intervals, sequence_audit
+from engine.sequence import SEQUENCE_FPS, clip_intervals, frame_count, seconds_intervals, sequence_audit, sequence_timeline
 from media.render import dimensions, subtitle_filter, write_ass
 from media.tools import binary, probe, run, verify_source
 from subtitles.captions import remap, srt
@@ -54,10 +54,6 @@ def join_clips(directory, names, audio, destination):
         args += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
     args += ["-movflags", "+faststart", str(destination)]
     run(args, cwd=directory)
-
-
-def frame_count(spans):
-    return sum(end - start for start, end in spans)
 
 
 def edge_intervals(spans, *, tail=False):
@@ -134,7 +130,7 @@ def sequence_cut_preview(project, clip, cut_id, progress):
     return {"video": video, "joinAt": frame_count(before) / SEQUENCE_FPS}
 
 def render_sequence(project, directory, progress):
-    clips = [(clip, clip_intervals(clip)) for clip in project["clips"] if clip["enabled"]]
+    clips = sequence_timeline(project)
     total = sum(frame_count(spans) for _, spans in clips)
     audio = any(clip["source"]["hasAudio"] for clip, _ in clips)
     width, height = dimensions(project)
@@ -164,7 +160,7 @@ def render_sequence(project, directory, progress):
                 raise RuntimeError("출력 길이가 편집 순서와 다릅니다.")
         (output / "captions.srt").write_text(srt(captions), encoding="utf-8-sig")
         atomic_json(output / "report.json", {"revision": project["revision"], "clips": project["clips"],
-                    "timeline": timeline, "output": result, "audit": sequence_audit(project["clips"]),
+                    "timeline": timeline, "output": result, "audit": sequence_audit(project),
                     "captionCount": len(captions), "settings": settings})
     except BaseException:
         rmtree(output, ignore_errors=True)

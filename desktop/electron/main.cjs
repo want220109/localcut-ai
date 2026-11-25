@@ -157,6 +157,22 @@ async function request(event,message) {
   if(action==='updateStatus') return updateController.state;
   if(action==='update') return updateController.action(message.operation,message.channel);
   const id=projectId(message.id);
+  if(['sequenceOutlineDraft','sequenceOutlinePreview','sequenceApplyOutline','sequenceClearOutline'].includes(action)) {
+    const {revision,rows,rowId,fresh=false}=message;
+    if(!Number.isSafeInteger(revision)||revision<0||typeof fresh!=='boolean')
+      throw new Error('현재 롱폼 구성 상태를 확인해 주세요.');
+    if(action==='sequenceOutlineDraft') return engine({action,id,revision,fresh});
+    if(action==='sequenceClearOutline') return decorate(await engine({action,id,revision}));
+    const validRowId=value=>typeof value==='string'&&/^[a-f0-9]{32}-[0-9]{1,9}-[0-9]{1,9}$/.test(value);
+    if(action==='sequenceOutlinePreview') {
+      if(!validRowId(rowId)) throw new Error('미리 볼 구성 구간을 선택해 주세요.');
+      return engine({action,id,revision,rowId,fresh});
+    }
+    if(!Array.isArray(rows)||rows.length<1||rows.length>102||
+       rows.some(row=>!row||!validRowId(row.id)||typeof row.enabled!=='boolean'))
+      throw new Error('적용할 구성 구간의 순서를 확인해 주세요.');
+    return decorate(await engine({action,id,revision,fresh,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));
+  }
   if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceAnalyzeEdits','sequenceSetCut','sequenceCutPreview','sequenceCaption','sequenceConnection'].includes(action)) {
     const {revision,rows,clipId,captionId,model,text,cutId,enabled}=message;
     if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');

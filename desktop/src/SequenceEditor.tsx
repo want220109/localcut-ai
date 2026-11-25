@@ -1,6 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {CaptionFramePreview} from './CaptionFramePreview';
 import {SequenceCuts} from './SequenceCuts';
+import {SequenceOutline} from './SequenceOutline';
 import {BasicSubtitleControls,SubtitleControls} from './SubtitleControls';
 
 const steps=[
@@ -10,7 +11,7 @@ type Step=typeof steps[number][0];
 const needsCaptions=(clip:Clip)=>!clip.analyzed&&!clip.captions.length;
 const captionStatus=(clip:Clip)=>clip.captions.length?`자막 ${clip.captions.length}줄`:clip.analyzed?'인식된 음성 없음':'자막 생성 전';
 
-import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,SequenceCutPreview,Settings} from './types';
+import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,SequenceCutPreview,SequenceOutlineDraft,SequenceOutlinePreview,Settings} from './types';
 
 interface Props {
  project:Project;
@@ -26,6 +27,10 @@ interface Props {
  analyzeEdits:()=>Promise<void>;
  previewCut:(clipId:string,cutId:string)=>Promise<SequenceCutPreview|null>;
  setCut:(clipId:string,cutId:string,enabled:boolean)=>Promise<void>;
+ loadOutline:(fresh:boolean)=>Promise<SequenceOutlineDraft|null>;
+ previewOutline:(rowId:string,fresh:boolean)=>Promise<SequenceOutlinePreview|null>;
+ applyOutline:(rows:ClipSelection[],fresh:boolean)=>Promise<boolean>;
+ clearOutline:()=>Promise<boolean>;
  modelReady:boolean;
  showModels:()=>void;
  saveCaption:(clipId:string,caption:Caption)=>Promise<boolean>;
@@ -38,7 +43,7 @@ interface Props {
 }
 
 export function SequenceEditor({project,disabled,progress,duration,formatTime,edit,preview,connection,
- analyze,analyzeAll,analyzeEdits,previewCut,setCut,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
+ analyze,analyzeAll,analyzeEdits,previewCut,setCut,loadOutline,previewOutline,applyOutline,clearOutline,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
  const clips=project.clips!;
  const included=clips.filter(item=>item.enabled);
  const [step,setStep]=useState<Step>(included.some(needsCaptions)?'captions':'edit');
@@ -61,6 +66,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
  const pending=included.filter(needsCaptions);
  const readyCount=included.length-pending.length;
  const requiresModel=!modelReady&&pending.some(item=>item.source.hasAudio&&!item.speechReady);
+ const hasOutline=!!project.sequenceOutline;
  const hasCurrentOutput=project.output?.revision===project.revision;
  const unsavedCount=clips.reduce((count,item)=>count+item.captions.filter(caption=>{
   const draftText=draftTexts[item.id+':'+caption.id];
@@ -86,7 +92,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
   return edit(rows.map(({id,enabled})=>({id,enabled})));
  }
  function move(from:number,to:number) {
-  if(disabled||from===to||from<0||to<0||to>=clips.length)return;
+  if(disabled||hasOutline||from===to||from<0||to<0||to>=clips.length)return;
   const rows=clips.slice();
   const [item]=rows.splice(from,1);
   rows.splice(to,0,item);
@@ -187,7 +193,10 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
    {captions}
   </>}
 
-  {step==='edit'&&<SequenceCuts clips={included} revision={project.revision} duration={duration}
+  <SequenceOutline active={step==='edit'} applied={hasOutline} revision={project.revision} disabled={disabled}
+   duration={duration} formatTime={formatTime} load={loadOutline} preview={previewOutline} apply={applyOutline} clear={clearOutline}/>
+
+  {step==='edit'&&<SequenceCuts clips={included} revision={project.revision} duration={hasOutline?null:duration}
    disabled={disabled} modelReady={modelReady} showModels={showModels} formatTime={formatTime}
    analyze={analyzeEdits} preview={previewCut} setCut={setCut}/>}
 
@@ -201,10 +210,11 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
       <span>{included.length}/{clips.length}개 포함 · {project.sortOrder==='capture'?'촬영 시간순':project.sortOrder==='import'?'불러온 순서':'편집 순서'}</span>
       <strong>예상 길이 {formatTime(duration)}</strong>
      </div>
+     {hasOutline&&<p className="small muted">최종 순서와 포함 여부는 확정한 롱폼 구성에서 변경할 수 있습니다.</p>}
      <ol className="sequence-list">
       {clips.map((item,index)=><li key={item.id} data-clip={item.name} className={selected===item.id?'selected':''}
-        draggable={!disabled} onDragStart={e=>e.dataTransfer.setData('application/x-localcut-clip',item.id)}
-        onDragOver={e=>{if(!disabled&&e.dataTransfer.types.includes('application/x-localcut-clip'))e.preventDefault();}}
+        draggable={!disabled&&!hasOutline} onDragStart={e=>e.dataTransfer.setData('application/x-localcut-clip',item.id)}
+        onDragOver={e=>{if(!disabled&&!hasOutline&&e.dataTransfer.types.includes('application/x-localcut-clip'))e.preventDefault();}}
         onDrop={e=>{
          const dragged=e.dataTransfer.getData('application/x-localcut-clip');
          if(!dragged)return;
@@ -212,19 +222,19 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
          move(clips.findIndex(c=>c.id===dragged),index);
         }}>
        <label className="checkbox"><input type="checkbox" aria-label={item.name+' 포함'} checked={item.enabled}
-        disabled={disabled||(item.enabled&&included.length===1)}
+        disabled={disabled||hasOutline||(item.enabled&&included.length===1)}
         onChange={()=>order(clips.map(c=>c.id===item.id?{...c,enabled:!c.enabled}:c))}/></label>
        <button className="sequence-name quiet" disabled={disabled} onClick={()=>step==='edit'?open(item):selectClip(item.id)}><strong>{item.name}</strong><small>{formatTime(item.source.duration)}</small></button>
        <div className="sequence-move">
-        <button className="quiet" disabled={disabled||index===0} onClick={()=>move(index,index-1)} aria-label={item.name+' 위로'}>↑</button>
-        <button className="quiet" disabled={disabled||index===clips.length-1} onClick={()=>move(index,index+1)} aria-label={item.name+' 아래로'}>↓</button>
+        <button className="quiet" disabled={disabled||hasOutline||index===0} onClick={()=>move(index,index-1)} aria-label={item.name+' 위로'}>↑</button>
+        <button className="quiet" disabled={disabled||hasOutline||index===clips.length-1} onClick={()=>move(index,index+1)} aria-label={item.name+' 아래로'}>↓</button>
        </div>
       </li>)}
      </ol>
      {step==='edit'&&<div className="sequence-preview">
       <div className="button-row">
        <button className="secondary" disabled={disabled} onClick={()=>open(clip)}>선택한 원본 보기</button>
-       {next&&<button className="secondary" disabled={disabled} onClick={openConnection}>다음 클립 연결부 보기</button>}
+       {next&&!hasOutline&&<button className="secondary" disabled={disabled} onClick={openConnection}>다음 클립 연결부 보기</button>}
        <button className="secondary" disabled={disabled} onClick={()=>captionPanel.current?.scrollIntoView({block:"nearest"})}>자막 편집</button>
       </div>
       {previewUrl&&<video ref={sourcePlayer} key={previewUrl} src={previewUrl} controls preload="metadata" aria-label="선택한 원본 미리보기"/>}
@@ -278,7 +288,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
    <section className="panel sequence-stage">
     <div className="section-title"><h2>최종 영상 저장</h2></div>
     <div className="sequence-body">
-     <p className="sequence-status">{included.length}개 영상 · {formatTime(duration)} · {project.settings.resolution}p · {project.settings.subtitles?'자막 포함 설정':'자막 없이 저장'}</p>
+     <p className="sequence-status">{hasOutline?'확정한 롱폼 구성':`${included.length}개 영상`} · {formatTime(duration)} · {project.settings.resolution}p · {project.settings.subtitles?'자막 포함 설정':'자막 없이 저장'}</p>
      {project.settings.subtitles&&pending.length>0&&<div className="sequence-reminder">
       <span>자막을 만들지 않은 영상 {pending.length}개는 자막 없이 합쳐집니다.</span>
       <button className="secondary" disabled={disabled} onClick={()=>goTo('captions')}>자막 생성으로 돌아가기</button>

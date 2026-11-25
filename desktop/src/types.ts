@@ -19,7 +19,7 @@ export interface Project {
   source:{path:string;duration:number;width:number;height:number;fps:number;aspect:string;hasAudio:boolean;bytes:number;capturedAt?:number|null};
   cuts:Cut[];captions:Caption[];transcript:Segment[];scenes:number[];warnings:string[];settings:Settings;
   model:{name:string;device:string}|null;output:{path:string;duration:number;revision:number}|null;
-  clips?:Clip[];sortOrder?:'capture'|'import'|'manual';
+  clips?:Clip[];sortOrder?:'capture'|'import'|'manual';sequenceOutline?:OutlineSection[];
 }
 export interface CutSummary {sourceDuration:number;outputDuration:number;removedDuration:number;appliedCount:number;reviewCount:number;intervalCount:number;noCutReason:string;analysisNeedsRefresh:boolean}
 export interface Audit {before:string;after:string;removed:{id:string;text:string;important:boolean}[];partial:{id:string;text:string;retained:number}[];importantRemoved:number;outputDuration:number;cutSummary?:CutSummary}
@@ -31,6 +31,13 @@ export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
 export interface ProjectResult {project:Project;audit:Audit;message?:string;captionFailures?:string[];editFailures?:string[]}
 export type TranscriptOperation = 'exclude'|'restore';
+export interface OutlineSection {
+ id:string;clipId:string;role:'도입'|'본론'|'마무리';enabled:boolean;
+ startFrame:number;endFrame:number;previewFrame:number;reason:string;excerpt:string;
+}
+export interface OutlineRow extends OutlineSection {name:string;seconds:number}
+export interface SequenceOutlineDraft {revision:number;rows:OutlineRow[];hasCaptions:boolean}
+export interface SequenceOutlinePreview {video:string;seconds:number}
 export interface SequenceCutPreview {video:string;joinAt:number}
 export interface CutPreview {
  video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];
