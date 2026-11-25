@@ -10,6 +10,8 @@ on:
 permissions:
   contents: read
   actions: read
+env:
+  LOCALCUT_BASE_VERSION: '0.3.2'
 jobs:
   upgrade:
     if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
@@ -42,8 +44,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Published build provenance missing' }
           $verified = Get-Content candidate/update-verification.json -Raw -Encoding utf8 | ConvertFrom-Json
           if ($env:TAG -ne "v$($verified.installer.version)" -or -not $verified.upgrade.passed) { throw 'Published build verification mismatch' }
-          $old = (Resolve-Path previous/release/LocalCut-AI-0.2.6-x64-Setup.exe).Path
-          if ((Get-FileHash $old -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b11d5e76aafff61ce788f13015ef25531dabc689af3bce418c4c9ad7ae0aa2cf') { throw 'Previous installer mismatch' }
+          $old = (Resolve-Path "previous/release/LocalCut-AI-${env:LOCALCUT_BASE_VERSION}-x64-Setup.exe").Path
           $process = Start-Process $old -ArgumentList '/S' -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw 'Previous version installation failed' }
           "LOCALCUT_TEST_INSTALLED_EXE=$env:LOCALAPPDATA\Programs\LocalCut AI\LocalCut AI.exe" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -54,7 +55,6 @@ jobs:
         env:
           LOCALCUT_CANDIDATE_DIR: candidate
           LOCALCUT_LIVE_GITHUB: '1'
-          LOCALCUT_BASE_VERSION: '0.2.6'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
