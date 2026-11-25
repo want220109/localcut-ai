@@ -73,17 +73,21 @@ def write_ass(captions, settings, width, height, directory):
             shutil.copyfile(font_file,directory/"fonts"/font_file.name)
 
 
-def build_graph(p, intervals, width, height):
+def build_graph(p, intervals, width, height, *, seeked_segments=None):
     settings=p["settings"]
     has_audio=p["source"]["hasAudio"]
     fps=p["source"]["fps"]
     graph=[]
     for i,(a,b) in enumerate(intervals):
-        vf=f"trim=start={a:.8f}:end={b:.8f},setpts=PTS-STARTPTS,fps={fps:.8f},"+video_framing(settings,i,b-a,width,height)
-        graph.append(f"[0:v:0]{vf}[v{i}]")
+        length = b-a
+        input_number, timeline_index, timeline_length = 0, i, length
+        if seeked_segments is not None:
+            timeline_index, timeline_length = seeked_segments[i]
+            input_number, a, b = i, 0, length
+        vf=f"trim=start={a:.8f}:end={b:.8f},setpts=PTS-STARTPTS,fps={fps:.8f},"+video_framing(settings,timeline_index,timeline_length,width,height)
+        graph.append(f"[{input_number}:v:0]{vf}[v{i}]")
         if has_audio:
-            length=b-a
-            graph.append(f"[0:a:0]atrim=start={a:.8f}:end={b:.8f},asetpts=PTS-STARTPTS,aresample=48000,"
+            graph.append(f"[{input_number}:a:0]atrim=start={a:.8f}:end={b:.8f},asetpts=PTS-STARTPTS,aresample=48000,"
                          f"apad=whole_dur={length:.8f},atrim=duration={length:.8f},"
                          f"afade=t=in:d=0.008,afade=t=out:st={max(0,length-.008):.8f}:d=0.008[a{i}]")
     labels="".join(f"[v{i}][a{i}]" if has_audio else f"[v{i}]" for i in range(len(intervals)))

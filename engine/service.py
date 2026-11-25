@@ -42,10 +42,16 @@ def dispatch(request, progress=lambda percent,message:None):
     if action=="captionFrame":
         from media.caption_frame import caption_frame
         return caption_frame(p, request["draft"])
+    if action=="cutPreview":
+        from media.cut_preview import cut_preview
+        return cut_preview(p, request.get("revision"), request.get("cutId"))
     if action=="get":
         return {"project":p,"audit":transcript_audit(p)}
     if action=="edit":
         p=store.edit(p["id"],request["changes"])
+    elif action=="editTranscript":
+        from engine.transcript_edit import edit_transcript
+        p=edit_transcript(store, p, request.get("revision"), request.get("lineIds"), request.get("operation"))
     elif action=="undo":
         p=store.undo(p["id"])
     elif action=="command":

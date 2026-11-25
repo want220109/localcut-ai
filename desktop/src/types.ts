@@ -24,6 +24,10 @@ export interface History {id:string;name:string;updatedAt:number;analyzed:boolea
 export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
 export interface ProjectResult {project:Project;audit:Audit;message?:string}
+export type TranscriptOperation = 'exclude'|'restore';
+export interface CutPreview {
+ video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];
+}
 export interface LongformSection {
  title:string;start:number;end:number;reason:string;previewTime:number;excerpt:string;retainedSeconds:number;
 }

@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -90,6 +91,45 @@ def test_source_changes_are_detected(tmp_path,sample):
     source.write_bytes(b"changed")
     with pytest.raises(ValueError,match="변경"):
         render(p,Store(tmp_path/"data").directory(p["id"]),lambda *_:None)
+
+
+@pytest.mark.integration
+def test_cut_preview_joins_the_merged_cut_with_sound_and_no_saved_output(tmp_path, sample):
+    store = Store(tmp_path)
+    p = store.create(probe(sample))
+    p["cuts"] = [
+        {"id": "a", "start": 2, "end": 4, "enabled": True, "review": False},
+        {"id": "b", "start": 3, "end": 4.5, "enabled": True, "review": False},
+    ]
+    p["captions"] = [{"id": "c", "start": 5, "end": 6, "text": "한국어 컷 연결 검증"}]
+    store.save(p)
+    def call(action, **values):
+        return dispatch({"root": str(tmp_path), "action": action, "id": p["id"], **values})
+
+    saved = store.directory(p["id"]) / "project.json"
+    original = saved.read_bytes()
+    data = call("cutPreview", revision=0, cutId="b")
+    assert (data["cutStart"], data["cutEnd"], data["joinAt"]) == (2, 4.5, 2)
+    assert data["before"] == (0, 2) and data["after"] == (4.5, 7.5)
+    assert saved.read_bytes() == original and not list(saved.parent.glob("render-*"))
+    output = tmp_path / "미리보기.mp4"
+    output.write_bytes(base64.b64decode(data["video"]))
+    info = probe(output)
+    assert info["duration"] == pytest.approx(5, abs=.08)
+    assert info["hasAudio"] and info["codec"] == "h264"
+
+    pixel = subprocess.check_output([binary("ffmpeg"), "-v", "error", "-ss", "2.1", "-i", str(output),
+                                    "-vf", "crop=2:2:8:8,format=rgb24", "-frames:v", "1", "-f", "rawvideo", "-"])
+    assert pixel[2] > 180 and pixel[0] < 30, "The first scene after the jump must come from the blue section"
+    audio = subprocess.check_output([binary("ffmpeg"), "-v", "error", "-ss", "2.1", "-i", str(output),
+                                    "-t", "0.3", "-f", "s16le", "-"])
+    assert any(audio), "The video after the jump must have its original sound"
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("cutPreview", revision=1, cutId="b")
+    p["cuts"].append({"id": "leading", "start": 0, "end": 2, "enabled": True, "review": False})
+    store.save(p)
+    with pytest.raises(ValueError, match="컷 앞뒤"):
+        call("cutPreview", revision=0, cutId="leading")
 
 
 @pytest.mark.integration

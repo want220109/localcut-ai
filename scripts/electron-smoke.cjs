@@ -96,6 +96,47 @@ async function checkLongform(app,page,sample,testRoot){
  assert.equal(result.project.cuts.find(c=>c.id==='ambient').enabled,false);
  assert.ok(Math.abs(result.project.output.duration-5.29)<.12);
  console.log('Long-form draft, source preview, explicit approval and rendered duration passed');
+ await checkTranscriptEdit(page,id,result.project.output);
+}
+async function checkTranscriptEdit(page,id,previousOutput){
+ await page.getByRole('button',{name:'대본 편집',exact:true}).click();
+ const editor=page.getByRole('region',{name:'대본에서 영상 편집',exact:true});
+ const intro=editor.getByRole('checkbox',{name:'오늘은 부산에 왔습니다',exact:true});
+ const ending=editor.getByRole('checkbox',{name:'정리하면 오늘 여행은 여기서 마칩니다',exact:true});
+ await intro.check();
+ await ending.check();
+ await editor.getByRole('button',{name:'선택 구간 제외',exact:true}).click();
+ await editor.getByText('00:03.3',{exact:true}).waitFor();
+ await editor.getByText('제외됨',{exact:true}).nth(2).waitFor();
+ const excluded=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.ok(Math.abs(excluded.audit.outputDuration-3.39)<.01);
+ assert.equal(excluded.project.captions[0].text,'오늘은 부산에 왔습니다');
+ await editor.getByRole('button',{name:'00:02.0 컷 연결부 보기',exact:true}).click();
+ const playerRegion=page.getByRole('region',{name:'컷 연결부 미리보기',exact:true});
+ const player=playerRegion.locator('video');
+ await player.waitFor().catch(async error=>{
+  console.error(await playerRegion.allTextContents());
+  throw error;
+ });
+ await player.evaluate(video=>video.play());
+ await page.waitForFunction(()=>document.querySelector('.cut-connection-preview video')?.currentTime>1);
+ const played=await player.evaluate(video=>({duration:video.duration,error:video.error?.message}));
+ assert.ok(Math.abs(played.duration-2.8)<.14);
+ assert.equal(played.error,undefined);
+ const previewOnly=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(previewOnly.project.revision,excluded.project.revision);
+ assert.deepEqual(previewOnly.project.output,previousOutput);
+ await playerRegion.getByRole('button',{name:'미리보기 닫기',exact:true}).click();
+ await intro.check();
+ await editor.getByRole('button',{name:'선택 구간 복원',exact:true}).click();
+ await editor.getByText('제외됨',{exact:true}).nth(2).waitFor({state:'detached'});
+ const restored=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.ok(Math.abs(restored.audit.outputDuration-4.49)<.01);
+ await page.getByRole('button',{name:'MP4 출력',exact:true}).click();
+ await page.locator('.result-panel .status-pill').filter({hasText:'출력 완료'}).waitFor({timeout:60000});
+ const rendered=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.ok(Math.abs(rendered.project.output.duration-4.49)<.12);
+ console.log('Transcript multi-selection, immediate duration, local cut playback and selective restoration passed');
 }
 async function main(){
  const root=path.resolve(__dirname,'..');
@@ -256,13 +297,15 @@ async function main(){
   console.log('Reopening application');
   app=await electron.launch(options);
   const reopened=await app.firstWindow({timeout:30000});reopened.setDefaultTimeout(30000);
+  reopened.on('pageerror',e=>errors.push(e.message));
   console.log('Reopened window ready');
   await reopened.getByRole('button',{name:/실제 테스트/}).click();
   await reopened.locator('video').first().waitFor();
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
   await checkLongform(app,reopened,sample,testRoot);
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } finally {if(app)await app.close();}
 }

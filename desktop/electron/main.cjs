@@ -147,6 +147,18 @@ async function request(event,message) {
     try {return await engine({action,id,draft:{id:captionId,text,start,end}},false);}
     finally {frameBusy=false;}
   }
+  if(action==='cutPreview'||action==='editTranscript') {
+    const {revision,cutId,lineIds,operation}=message;
+    if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
+    if(action==='cutPreview') {
+      if(typeof cutId!=='string'||!cutId||cutId.length>128) throw new Error('미리 볼 컷을 선택해 주세요.');
+      return engine({action,id,revision,cutId});
+    }
+    if(!['exclude','restore'].includes(operation)||!Array.isArray(lineIds)||!lineIds.length||
+       lineIds.length>100000||lineIds.some(lineId=>typeof lineId!=='string'||!lineId||lineId.length>128)||
+       Buffer.byteLength(JSON.stringify(lineIds))>1024*1024) throw new Error('편집할 대본 줄을 확인해 주세요.');
+    return decorate(await engine({action,id,revision,lineIds,operation}));
+  }
   if(action==='longformDraft'||action==='applyLongform') {
     const {targetSeconds,revision,selected,model}=message;
     if(!Number.isFinite(targetSeconds)||targetSeconds<=0) throw new Error('목표 영상 길이를 확인해 주세요.');
