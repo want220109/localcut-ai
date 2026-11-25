@@ -147,6 +147,17 @@ async function request(event,message) {
     try {return await engine({action,id,draft:{id:captionId,text,start,end}},false);}
     finally {frameBusy=false;}
   }
+  if(action==='longformDraft'||action==='applyLongform') {
+    const {targetSeconds,revision,selected,model}=message;
+    if(!Number.isFinite(targetSeconds)||targetSeconds<=0) throw new Error('목표 영상 길이를 확인해 주세요.');
+    if(action==='longformDraft') {
+      if(!['tiny','small'].includes(model)) throw new Error('지원하지 않는 모델입니다.');
+      return decorate(await engine({action,id,targetSeconds,model}));
+    }
+    if(!Number.isSafeInteger(revision)||!Array.isArray(selected)||selected.length>60||
+       selected.some(item=>typeof item!=='string'||item.length>128)) throw new Error('적용할 컷 후보를 확인해 주세요.');
+    return decorate(await engine({action,id,targetSeconds,revision,selected}));
+  }
   if(['get','analyze','render','undo','edit','command'].includes(action)) {
     const allowed={action,id};
     if(action==='edit') allowed.changes=message.changes;

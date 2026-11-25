@@ -28,3 +28,31 @@
 .caption-frame-image img{display:block;max-width:100%;max-height:min(55vh,410px);width:auto;height:auto;object-fit:contain}
 .caption-frame-status:not(:empty){margin-top:8px}
 .caption-frame-status[role=alert]{color:#ffad9d}
+
+.longform-open{width:100%;margin-top:9px}
+.longform-editor{padding:20px 22px;color:#c6cedc}
+.longform-form{display:flex;align-items:end;flex-wrap:wrap;gap:12px}
+.longform-form fieldset{display:flex;gap:10px;border:0;padding:0;margin:0;min-width:0}
+.longform-form legend{margin-bottom:8px;font-size:12px}
+.longform-form label{display:flex;align-items:center;gap:5px}
+.longform-form input{width:68px}
+.longform-overview{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;margin:18px 0}
+.longform-sections{display:grid;gap:8px}
+.longform-sections article,.longform-preview{padding:12px;background:#14181e;border:1px solid var(--line);border-radius:8px}
+.longform-section-title,.longform-cut-header{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:5px 12px}
+.longform-section-title h3,.longform-cut-header h3{margin:0;color:#dbe3ee}
+.longform-section-title span,.longform-preview small,.longform-cut-header p{font-size:11px;color:#99a6b9}
+.longform-sections blockquote{margin:8px 0 0;font-size:12px;color:#d2e6bc;overflow-wrap:anywhere}
+.longform-sections p,.longform-note{font-size:11px;line-height:1.6}
+.longform-sections p{margin:6px 0;color:#a2acc0}
+.longform-preview{align-self:start}
+.longform-preview video{display:block;width:100%;max-height:280px;aspect-ratio:16/9;background:#080a0d;border-radius:5px;object-fit:contain}
+.longform-cuts{padding-top:12px;border-top:1px solid var(--line)}
+.longform-cut-header p{margin:0}
+.longform-cut-header strong{color:#cce4b0;font-variant-numeric:tabular-nums}
+.longform-cuts ul{padding:0;list-style:none;max-height:310px;overflow-y:auto}
+.longform-cuts li{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
+.longform-cuts label{font-size:11px;line-height:1.65;color:#c6cedc}
+.longform-cuts li button{flex-shrink:0}
+.longform-note{color:#d9d1a0}
+@media(max-width:850px){.longform-overview{grid-template-columns:minmax(0,1fr)}.longform-preview{grid-row:1}}

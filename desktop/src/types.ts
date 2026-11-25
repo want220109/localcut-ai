@@ -24,6 +24,14 @@ export interface History {id:string;name:string;updatedAt:number;analyzed:boolea
 export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
 export interface ProjectResult {project:Project;audit:Audit;message?:string}
+export interface LongformSection {
+ title:string;start:number;end:number;reason:string;previewTime:number;excerpt:string;retainedSeconds:number;
+}
+export interface LongformDraft {
+ revision:number;targetSeconds:number;currentSeconds:number;hasDialogue:boolean;sections:LongformSection[];
+ candidates:(Cut&{recommended:boolean})[];
+}
+export interface LongformResult {draft:LongformDraft;project?:Project;audit?:Audit}
 export interface Bridge {
   call(action:string,data?:Record<string,unknown>):Promise<unknown>;
   dropped(file:File):Promise<Project>;

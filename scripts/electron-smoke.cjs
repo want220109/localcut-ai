@@ -36,6 +36,62 @@ async function expectRevealed(app,expected){
   throw new Error('Explorer did not receive the expected file: '+filename);
  },expected);
 }
+async function checkLongform(app,page,sample,testRoot){
+ const source=path.join(testRoot,'롱폼 편집 검증.mp4');
+ await fs.copyFile(sample,source);
+ const {id}=await page.evaluate(file=>window.localcut.call('import',{path:file}),source);
+ await page.reload();
+ await page.getByRole('button',{name:/롱폼 편집 검증/}).click();
+ await page.getByRole('button',{name:'유튜브 롱폼 초벌 편집',exact:true}).click();
+ const frame=page.getByRole('region',{name:'유튜브 롱폼 초벌 편집',exact:true});
+ const generate=frame.getByRole('button',{name:'초벌 편집안 만들기',exact:true});
+ await generate.click();
+ await frame.getByText(/대사 근거가 부족해/).waitFor();
+ const empty=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(empty.project.analyzed,true);
+ assert.equal(empty.audit.outputDuration,6);
+ assert.equal(empty.project.output,null);
+ // Controlled saved transcript fixture, without downloading real model weights.
+ const userData=await app.evaluate(({app})=>app.getPath('userData'));
+ const projectPath=path.join(userData,'workspace','jobs',id,'project.json');
+ const project=JSON.parse(await fs.readFile(projectPath,'utf8'));
+ project.scenes=[];
+ project.transcript=[
+  {id:'intro',start:.2,end:1.3,text:'오늘은 여기에 왔습니다',confidence:.98},
+  {id:'first-take',start:2,end:2.65,text:'이제 거리를 한 번 둘러보고 올게요',confidence:.98},
+  {id:'second-take',start:3,end:3.65,text:'이제 거리를 한 번 둘러보고 올게요',confidence:.98},
+  {id:'ending',start:4.8,end:5.6,text:'정리하면 오늘 여행은 여기서 마칩니다',confidence:.98},
+ ];
+ project.captions=project.transcript.map(line=>({...line}));
+ project.captions[0]={...project.captions[0],text:'오늘은 부산에 왔습니다',textEdited:true};
+ project.cuts=[{id:'ambient',start:4,end:4.65,kind:'speech_gap',reason:'현장음 확인 후보',confidence:.6,review:true,enabled:false}];
+ await fs.writeFile(projectPath,JSON.stringify(project),'utf8');
+ await page.getByRole('button',{name:/롱폼 편집 검증/}).click();
+ await frame.getByLabel('목표 길이 (초)').fill('5.2');
+ await generate.click();
+ await frame.getByText('오늘은 부산에 왔습니다',{exact:true}).waitFor();
+ await frame.getByRole('button',{name:'마무리 원본 보기',exact:true}).click();
+ await page.waitForFunction(()=>Math.abs(document.querySelector('.longform-preview video').currentTime-4.8)<.05);
+ const keep=frame.getByRole('checkbox',{name:/같은 발언이 바로 이어집니다/});
+ const ambient=frame.getByRole('checkbox',{name:/현장음 확인 후보/});
+ assert.equal(await keep.isChecked(),true);
+ assert.equal(await ambient.isChecked(),false);
+ const pending=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(pending.audit.outputDuration,6);
+ await frame.getByLabel('목표 길이 (초)').fill('5.1');
+ await frame.getByText(/다시 만들어 주세요/).waitFor();
+ assert.equal(await frame.getByRole('button',{name:'선택한 컷 적용 (1)',exact:true}).isDisabled(),true);
+ await generate.click();
+ await frame.getByRole('button',{name:'선택한 컷 적용 (1)',exact:true}).click();
+ await frame.getByText(/1개 컷을 적용했습니다/).waitFor();
+ await page.getByRole('button',{name:'MP4 출력',exact:true}).click();
+ await page.locator('.result-panel .status-pill').filter({hasText:'출력 완료'}).waitFor({timeout:60000});
+ const result=await page.evaluate(id=>window.localcut.call('get',{id}),id);
+ assert.equal(result.project.cuts.filter(c=>c.enabled).length,1);
+ assert.equal(result.project.cuts.find(c=>c.id==='ambient').enabled,false);
+ assert.ok(Math.abs(result.project.output.duration-5.29)<.12);
+ console.log('Long-form draft, source preview, explicit approval and rendered duration passed');
+}
 async function main(){
  const root=path.resolve(__dirname,'..');
  const testRoot=path.join(root,'test-results',process.env.LOCALCUT_PACKAGED_EXE?'installed-electron':'electron');await fs.mkdir(testRoot,{recursive:true});
@@ -200,7 +256,8 @@ async function main(){
   await reopened.locator('video').first().waitFor();
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await checkLongform(app,reopened,sample,testRoot);
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } finally {if(app)await app.close();}
 }

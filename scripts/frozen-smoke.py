@@ -28,6 +28,9 @@ with tempfile.TemporaryDirectory(prefix="localcut-frozen-") as temporary:
     # No speech model is fetched by smoke tests. Visual analysis still loads native OpenCV.
     result=call("analyze",id=p["id"])
     assert result["project"]["analyzed"]
+    draft=call("longformDraft",id=p["id"],targetSeconds=2)["draft"]
+    assert [section["title"] for section in draft["sections"]]==["도입","본론","마무리"]
+    assert draft["currentSeconds"]==3 and not draft["candidates"]
     preset=json.loads((ROOT/"subtitles"/"presets.json").read_text(encoding="utf-8"))["presets"][0]
     call("edit",id=p["id"],changes={"settings":{**preset["settings"],"subtitlePreset":preset["id"]},
                                    "captions":[{"id":"font-test","start":0,"end":2,"text":"한국어 자막 글꼴 검증"}]})

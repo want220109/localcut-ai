@@ -8,7 +8,7 @@ from pathlib import Path
 
 from engine import __version__
 from engine.commands import interpret
-from engine.project import Store, transcript_audit
+from engine.project import Store, finite, transcript_audit
 from media.tools import binary, probe, verify_source
 from models.manager import install, status
 
@@ -52,7 +52,17 @@ def dispatch(request, progress=lambda percent,message:None):
         changes,message=interpret(p,request["text"])
         p=store.edit(p["id"],changes)
         return {"project":p,"audit":transcript_audit(p),"message":message}
-    elif action=="analyze":
+    elif action in {"analyze", "longformDraft", "applyLongform"}:
+        from engine.longform import apply_draft, make_draft
+        if action != "analyze":
+            target = finite(request.get("targetSeconds"), .001, p["source"]["duration"])
+            if action == "applyLongform":
+                verify_source(p["source"])
+                p = apply_draft(store, p, target, request.get("revision"), request.get("selected"))
+                return {"project": p, "audit": transcript_audit(p)}
+            if p["analyzed"]:
+                verify_source(p["source"])
+                return {"draft": make_draft(p, target)}
         from engine.analysis import silence_ranges, transcribe, visual_analysis
         from engine.planner import STYLES, plan
         from subtitles.captions import generate
@@ -73,16 +83,30 @@ def dispatch(request, progress=lambda percent,message:None):
             transcript,vad,model=transcribe(p["source"],store.root,request.get("model","small"),directory,progress)
         progress(85,"문맥·반복·중요 표현을 비교해 편집점 선정 중")
         analysis_summary={}
-        cuts,warnings=plan(p["source"],transcript,silences,scenes,motion,vad,p["style"],analysis_summary)
+        draft_mode = action == "longformDraft"
+        style = "basic" if draft_mode else p["style"]
+        cuts,warnings=plan(p["source"],transcript,silences,scenes,motion,vad,style,analysis_summary)
+        captions = generate(transcript, style, p["settings"])
+        if draft_mode:
+            from engine.longform import intersects, occupied
+            present = occupied(p["cuts"], p["source"]["duration"])
+            cuts = [*p["cuts"], *(dict(cut, enabled=False, review=True) for cut in cuts
+                                  if not intersects(present, cut["start"], cut["end"]))]
+            captions = p["captions"] or captions
+            analysis_summary.update(style=p["style"], automaticCuts=sum(c["enabled"] for c in cuts),
+                                    reviewCuts=sum(c["review"] and not c["enabled"] for c in cuts))
         if model and model.get("fallback"):
             warnings.append(model["fallback"])
-        p.update(transcript=transcript,captions=generate(transcript,p["style"],p["settings"]),cuts=cuts,scenes=scenes,motion=motion,
+        p.update(transcript=transcript,captions=captions,cuts=cuts,scenes=scenes,motion=motion,
                  warnings=warnings,model=model,analyzed=True,analysisSummary=analysis_summary,revision=p["revision"]+1)
-        p["settings"]["zoom"]=STYLES[p["style"]]["zoom"]
-        if p["style"]=="shorts":
-            p["settings"]["aspect"]="9:16"
+        if not draft_mode:
+            p["settings"]["zoom"]=STYLES[p["style"]]["zoom"]
+            if p["style"]=="shorts":
+                p["settings"]["aspect"]="9:16"
         p=store.save(p,snapshot=True)
         progress(100,"분석 완료 · 편집 구간을 검수해 주세요")
+        if draft_mode:
+            return {"project": p, "audit": transcript_audit(p), "draft": make_draft(p, target)}
     elif action=="render":
         from media.render import render
         p["output"]=render(p,store.directory(p["id"]),progress)
