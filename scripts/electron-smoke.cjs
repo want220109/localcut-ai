@@ -54,7 +54,9 @@ async function checkLongform(app,page,sample,testRoot){
  // Controlled saved transcript fixture, without downloading real model weights.
  const userData=await app.evaluate(({app})=>app.getPath('userData'));
  const projectPath=path.join(userData,'workspace','jobs',id,'project.json');
- const project=JSON.parse(await fs.readFile(projectPath,'utf8'));
+ // Keep the nanosecond source fingerprint exact when editing the fixture.
+ const project=JSON.parse(await fs.readFile(projectPath,'utf8'),
+  (key,value,context)=>key==='mtimeNs'?JSON.rawJSON(context.source):value);
  project.scenes=[];
  project.transcript=[
   {id:'intro',start:.2,end:1.3,text:'오늘은 여기에 왔습니다',confidence:.98},
@@ -69,7 +71,10 @@ async function checkLongform(app,page,sample,testRoot){
  await page.getByRole('button',{name:/롱폼 편집 검증/}).click();
  await frame.getByLabel('목표 길이 (초)').fill('5.2');
  await generate.click();
- await frame.getByText('오늘은 부산에 왔습니다',{exact:true}).waitFor();
+ await frame.getByText('오늘은 부산에 왔습니다',{exact:true}).waitFor().catch(async error=>{
+  console.error(await page.locator('.banner.error').allTextContents());
+  throw error;
+ });
  await frame.getByRole('button',{name:'마무리 원본 보기',exact:true}).click();
  await page.waitForFunction(()=>Math.abs(document.querySelector('.longform-preview video').currentTime-4.8)<.05);
  const keep=frame.getByRole('checkbox',{name:/같은 발언이 바로 이어집니다/});
