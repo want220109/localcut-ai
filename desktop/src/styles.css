@@ -137,3 +137,8 @@
 .outline-row-actions{flex:none}
 .outline-row-actions .quiet{border:1px solid var(--line);border-radius:5px;padding:6px 9px}
 @media(max-width:880px){.outline-list li{align-items:flex-start;flex-direction:column}.outline-row-actions{align-self:flex-end}}
+
+.sequence-audio-option,.sequence-cut-adjust{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:7px;background:#13171d}
+.sequence-cut-adjust h3{margin:0 0 8px}
+.sequence-audio-option p,.sequence-cut-adjust p{margin:6px 0 0}
+.sequence-cut-list li>.button-row{flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}

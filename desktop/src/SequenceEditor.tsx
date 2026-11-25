@@ -11,7 +11,7 @@ type Step=typeof steps[number][0];
 const needsCaptions=(clip:Clip)=>!clip.analyzed&&!clip.captions.length;
 const captionStatus=(clip:Clip)=>clip.captions.length?`자막 ${clip.captions.length}줄`:clip.analyzed?'인식된 음성 없음':'자막 생성 전';
 
-import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,SequenceCutPreview,SequenceOutlineDraft,SequenceOutlinePreview,Settings} from './types';
+import type {Caption,Clip,ClipSelection,CutRange,Progress,Project,SequenceConnection,SequenceCutPreview,SequenceOutlineDraft,SequenceOutlinePreview,Settings} from './types';
 
 interface Props {
  project:Project;
@@ -25,7 +25,8 @@ interface Props {
  analyze:(clipId:string)=>Promise<void>;
  analyzeAll:()=>Promise<void>;
  analyzeEdits:()=>Promise<void>;
- previewCut:(clipId:string,cutId:string)=>Promise<SequenceCutPreview|null>;
+ previewCut:(clipId:string,cutId:string,range?:CutRange)=>Promise<SequenceCutPreview|null>;
+ adjustCut:(clipId:string,cutId:string,range:CutRange)=>Promise<boolean>;
  setCut:(clipId:string,cutId:string,enabled:boolean)=>Promise<void>;
  loadOutline:(fresh:boolean)=>Promise<SequenceOutlineDraft|null>;
  previewOutline:(rowId:string,fresh:boolean)=>Promise<SequenceOutlinePreview|null>;
@@ -43,7 +44,7 @@ interface Props {
 }
 
 export function SequenceEditor({project,disabled,progress,duration,formatTime,edit,preview,connection,
- analyze,analyzeAll,analyzeEdits,previewCut,setCut,loadOutline,previewOutline,applyOutline,clearOutline,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
+ analyze,analyzeAll,analyzeEdits,previewCut,adjustCut,setCut,loadOutline,previewOutline,applyOutline,clearOutline,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
  const clips=project.clips!;
  const included=clips.filter(item=>item.enabled);
  const [step,setStep]=useState<Step>(included.some(needsCaptions)?'captions':'edit');
@@ -198,7 +199,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
 
   {step==='edit'&&<SequenceCuts clips={included} revision={project.revision} duration={hasOutline?null:duration}
    disabled={disabled} modelReady={modelReady} showModels={showModels} formatTime={formatTime}
-   analyze={analyzeEdits} preview={previewCut} setCut={setCut}/>}
+   analyze={analyzeEdits} preview={previewCut} adjust={adjustCut} setCut={setCut}/>}
 
   {(step==='import'||step==='edit')&&<>
    <section className="panel sequence-panel">
@@ -277,6 +278,11 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
      </select></label>
      <label className="checkbox"><input type="checkbox" disabled={disabled} checked={project.settings.subtitles}
       onChange={e=>changeSettings({subtitles:e.target.checked})}/> MP4에 자막 넣기</label>
+    </div>
+    <div className="sequence-audio-option">
+     <label className="checkbox"><input type="checkbox" disabled={disabled} checked={project.settings.normalize}
+      onChange={e=>changeSettings({normalize:e.target.checked})}/> 클립 간 음량 맞추기</label>
+     <p className="small muted">편집 후 남은 오디오의 음량 차이를 측정해 최종 MP4와 출력 미리보기에 반영합니다.</p>
     </div>
     <div className="button-row sequence-actions">
      <button className="primary" disabled={disabled} onClick={()=>goTo('save')}>MP4 저장으로</button>

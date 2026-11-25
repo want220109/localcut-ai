@@ -15,16 +15,20 @@ def source_frames(clip):
     return max(1, round(clip["source"]["duration"] * SEQUENCE_FPS))
 
 
+def cut_frames(clip, start, end):
+    total = source_frames(clip)
+    first = min(total, ceil(start * SEQUENCE_FPS - 1e-6))
+    last = total if end >= clip["source"]["duration"] else min(total, floor(end * SEQUENCE_FPS + 1e-6))
+    return first, last
+
+
 def clip_intervals(clip):
     """Kept ranges in output frames, expressed in each clip's source timeline."""
     duration = clip["source"]["duration"]
     total_frames = source_frames(clip)
     kept, cursor = [], 0
     for a, b in merged_ranges(clip.get("cuts", []), duration):
-        start = min(total_frames, ceil(a * SEQUENCE_FPS - 1e-6))
-        end = min(total_frames, floor(b * SEQUENCE_FPS + 1e-6))
-        if b >= duration:
-            end = total_frames
+        start, end = cut_frames(clip, a, b)
         if end <= start:
             continue
         if start > cursor:
@@ -260,6 +264,30 @@ def analyze_sequence_edits(store, project, request, progress):
     return process_clips(store, project, pending, progress, work, "AI 편집점 분석 완료")
 
 
+def find_cut(clip, cut_id):
+    cut = next((item for item in clip.get("cuts", []) if item["id"] == cut_id), None)
+    if cut is None:
+        raise ValueError("편집 구간을 다시 선택해 주세요.")
+    return cut
+
+
+def with_cut(clip, replacement):
+    return {**clip, "cuts": [replacement if item["id"] == replacement["id"] else item for item in clip["cuts"]]}
+
+
+def adjusted_cut(clip, cut, start, end):
+    duration = clip["source"]["duration"]
+    start = finite(start, 0, duration)
+    end = finite(end, 0, duration)
+    a, b = cut_frames(clip, start, end)
+    if start >= end or b <= a:
+        raise ValueError("시작과 끝 사이에 삭제할 프레임이 한 개 이상 있어야 합니다.")
+    replacement = {**cut, "start": start, "end": end}
+    if not clip_frames(with_cut(clip, {**replacement, "enabled": True})):
+        raise ValueError("클립 전체를 삭제할 수 없습니다.")
+    return replacement
+
+
 def sequence_action(store, project, request, progress):
     action = request["action"]
     if action == "render":
@@ -275,13 +303,21 @@ def sequence_action(store, project, request, progress):
         clip = next((clip for clip in project["clips"] if clip["id"] == request.get("clipId")), None)
         if clip is None:
             raise ValueError("클립을 다시 선택해 주세요.")
-        if action == "sequenceCutPreview":
-            from media.sequence import sequence_cut_preview
-            return sequence_cut_preview(project, clip, request.get("cutId"), progress)
+        if action in {"sequenceCutPreview", "sequenceAdjustCut"}:
+            original = find_cut(clip, request.get("cutId"))
+            cut = original
+            if action == "sequenceAdjustCut" or "start" in request or "end" in request:
+                cut = adjusted_cut(clip, original, request.get("start"), request.get("end"))
+            if action == "sequenceCutPreview":
+                from media.sequence import sequence_cut_preview
+                return sequence_cut_preview(project, clip, cut, progress)
+            if original == cut:
+                return project
+            original.update(cut)
         if action == "sequenceSetCut":
-            chosen = next((cut for cut in clip.get("cuts", []) if cut["id"] == request.get("cutId")), None)
+            chosen = find_cut(clip, request.get("cutId"))
             enabled = request.get("enabled")
-            if chosen is None or type(enabled) is not bool:
+            if type(enabled) is not bool:
                 raise ValueError("편집 구간을 다시 선택해 주세요.")
             if chosen["enabled"] == enabled:
                 return project

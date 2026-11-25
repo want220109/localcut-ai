@@ -73,7 +73,7 @@ def dispatch(request, progress=lambda percent,message:None):
             p, failures = analyze_sequence_edits(store, p, request, progress)
             return {"project": p, "audit": transcript_audit(p), "editFailures": failures}
         if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption",
-                      "sequenceCutPreview", "sequenceSetCut", "render"}:
+                      "sequenceCutPreview", "sequenceSetCut", "sequenceAdjustCut", "render"}:
             from engine.sequence import sequence_action
             result = sequence_action(store, p, request, progress)
             if action in {"sequencePreview", "sequenceConnection", "sequenceCutPreview"}:

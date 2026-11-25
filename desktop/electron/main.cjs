@@ -173,8 +173,8 @@ async function request(event,message) {
       throw new Error('적용할 구성 구간의 순서를 확인해 주세요.');
     return decorate(await engine({action,id,revision,fresh,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));
   }
-  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceAnalyzeEdits','sequenceSetCut','sequenceCutPreview','sequenceCaption','sequenceConnection'].includes(action)) {
-    const {revision,rows,clipId,captionId,model,text,cutId,enabled}=message;
+  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceAnalyzeEdits','sequenceSetCut','sequenceCutPreview','sequenceAdjustCut','sequenceCaption','sequenceConnection'].includes(action)) {
+    const {revision,rows,clipId,captionId,model,text,cutId,enabled,start,end}=message;
     if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
     if(action==='editSequence') {
       if(!Array.isArray(rows)||rows.length<2||rows.length>100||
@@ -187,9 +187,14 @@ async function request(event,message) {
       return decorate(await engine({action,id,revision,model}));
     }
     projectId(clipId);
-    if(action==='sequenceSetCut'||action==='sequenceCutPreview') {
+    if(['sequenceSetCut','sequenceCutPreview','sequenceAdjustCut'].includes(action)) {
       if(typeof cutId!=='string'||!cutId||cutId.length>128) throw new Error('편집 구간을 다시 선택해 주세요.');
-      if(action==='sequenceCutPreview') return engine({action,id,revision,clipId,cutId});
+      if(action==='sequenceAdjustCut'||start!==undefined||end!==undefined){
+        if(action==='sequenceSetCut'||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start)
+          throw new Error('컷의 시작과 끝 시간을 확인해 주세요.');
+      }
+      if(action==='sequenceCutPreview') return engine({action,id,revision,clipId,cutId,start,end});
+      if(action==='sequenceAdjustCut') return decorate(await engine({action,id,revision,clipId,cutId,start,end}));
       if(typeof enabled!=='boolean') throw new Error('편집 구간의 적용 상태를 확인해 주세요.');
       return decorate(await engine({action,id,revision,clipId,cutId,enabled}));
     }

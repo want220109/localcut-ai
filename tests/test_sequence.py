@@ -379,3 +379,96 @@ def test_longform_outline_splits_a_clip_at_saved_text_boundaries_and_preserves_e
         ("도입", 0, 150), ("본론", 150, 780), ("마무리", 780, 900),
     ]
     assert sum(row["endFrame"] - row["startFrame"] for row in own) == 30 * 30
+
+
+@pytest.mark.integration
+def test_adjust_cut_while_preview_is_read_only_and_preserve_applied_state(tmp_path, files):
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(files[0]), str(files[2])])["project"]
+    clip = project["clips"][0]
+    saved = {"id": "silence", "start": .3, "end": .6, "enabled": True, "review": False}
+    clip["cuts"] = [saved]
+    store = Store(tmp_path)
+    store.save(project)
+    fields = {"id": project["id"], "revision": 0, "clipId": clip["id"], "cutId": saved["id"]}
+    before = call("get", id=fields["id"])["audit"]["outputDuration"]
+
+    preview = call("sequenceCutPreview", **fields, start=.2, end=.8)
+    path = tmp_path / "조정한 컷 미리보기.mp4"
+    path.write_bytes(base64.b64decode(preview["video"]))
+    assert preview["joinAt"] == .2
+    assert probe(path)["duration"] == pytest.approx(.4, abs=.08)
+    assert store.load(fields["id"])["clips"][0]["cuts"] == [saved]
+
+    for start, end in ((.7, .1), (.01, .015), (0, clip["source"]["duration"])):
+        with pytest.raises(ValueError):
+            call("sequenceAdjustCut", **fields, start=start, end=end)
+
+    changed = call("sequenceAdjustCut", **fields, start=.2, end=.8)
+    revision = changed["project"]["revision"]
+    assert changed["project"]["clips"][0]["cuts"] == [dict(saved, start=.2, end=.8)]
+    assert changed["audit"]["outputDuration"] == pytest.approx(before - .3)
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("sequenceAdjustCut", **fields, start=.25, end=.8)
+    assert call("undo", id=fields["id"])["project"]["clips"][0]["cuts"] == [saved]
+
+    current = store.load(fields["id"])
+    assert current["revision"] > revision
+    fields["revision"] = current["revision"]
+    unchecked = call("sequenceSetCut", **fields, enabled=False)
+    fields["revision"] = unchecked["project"]["revision"]
+    edited = call("sequenceAdjustCut", **fields, start=.2, end=.8)
+    assert not edited["project"]["clips"][0]["cuts"][0]["enabled"]
+    assert edited["audit"]["outputDuration"] == unchecked["audit"]["outputDuration"]
+
+
+@pytest.mark.integration
+def test_sequence_clip_volume_balance_measures_the_retained_audio(tmp_path, files):
+    import math
+    import struct
+
+    sources = []
+    for name, color, volume in (("조용한 영상", "red", .55), ("큰 영상", "blue", 2.1)):
+        source = tmp_path / (name + ".mp4")
+        subprocess.run([binary("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"color={color}:s=320x180:r=25:d=3",
+                        "-f", "lavfi", "-i", "sine=f=440:r=48000:d=3", "-af", f"volume={volume}",
+                        "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", "-c:a", "aac", str(source)], check=True)
+        sources.append(source)
+    sources.append(files[2])
+    digests = [hashlib.sha256(source.read_bytes()).hexdigest() for source in sources]
+
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    def level(path, start, duration=.35):
+        pcm = subprocess.check_output([binary("ffmpeg"), "-v", "error", "-ss", str(start), "-i",
+                                        path, "-t", str(duration), "-vn", "-f", "s16le", "-"])
+        samples = [sample for (sample,) in struct.iter_unpack("<h", pcm)]
+        return math.sqrt(sum(sample * sample for sample in samples) / len(samples))
+
+    project = call("createSequence", sources=[str(source) for source in sources])["project"]
+    identifier = project["id"]
+    quiet, loud, silent = project["clips"]
+    quiet["cuts"] = [{"id": "split", "start": 1, "end": 1.4, "enabled": True, "review": False}]
+    project["settings"]["resolution"] = "720"
+    Store(tmp_path).save(project)
+    plain = call("render", id=identifier)["project"]["output"]
+    loud_start = clip_frames(quiet) / 30
+    silence_start = loud_start + clip_frames(loud) / 30
+    assert 20 * math.log10(level(plain["path"], loud_start + .4) / level(plain["path"], .4)) > 10
+    assert not json.loads(Path(plain["report"]).read_text(encoding="utf-8"))["clipAudioGainDb"]
+
+    call("edit", id=identifier, changes={"settings": {"normalize": True}})
+    output = call("render", id=identifier)["project"]["output"]
+    quiet_first = level(output["path"], .4)
+    quiet_second = level(output["path"], 1.5)
+    loud_value = level(output["path"], loud_start + .4)
+    assert abs(20 * math.log10(loud_value / quiet_first)) < 1.5
+    assert abs(20 * math.log10(quiet_second / quiet_first)) < .5
+    assert level(output["path"], silence_start + .2, .25) < 2
+    assert probe(output["path"])["duration"] == pytest.approx(plain["duration"], abs=.03)
+    gains = json.loads(Path(output["report"]).read_text(encoding="utf-8"))["clipAudioGainDb"]
+    assert gains[quiet["id"]] > 0 and gains[loud["id"]] < 0 and silent["id"] not in gains
+    assert [hashlib.sha256(source.read_bytes()).hexdigest() for source in sources] == digests

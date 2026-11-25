@@ -233,7 +233,8 @@ function App(){
       connection={id=>readSequence<SequenceConnection>('sequenceConnection',{clipId:id})}
       analyzeAll={async()=>{await changeSequence('sequenceAnalyzeAll',{model});}}
       analyzeEdits={async()=>{await changeSequence('sequenceAnalyzeEdits',{model});}}
-      previewCut={(clipId,cutId)=>readSequence<SequenceCutPreview>('sequenceCutPreview',{clipId,cutId})}
+      previewCut={(clipId,cutId,range)=>readSequence<SequenceCutPreview>('sequenceCutPreview',{clipId,cutId,...range})}
+      adjustCut={(clipId,cutId,range)=>changeSequence('sequenceAdjustCut',{clipId,cutId,...range})}
       setCut={async(clipId,cutId,enabled)=>{await changeSequence('sequenceSetCut',{clipId,cutId,enabled});}}
       loadOutline={fresh=>readSequence<SequenceOutlineDraft>('sequenceOutlineDraft',{fresh})}
       previewOutline={(rowId,fresh)=>readSequence<SequenceOutlinePreview>('sequenceOutlinePreview',{rowId,fresh})}

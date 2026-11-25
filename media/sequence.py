@@ -1,14 +1,21 @@
 from pathlib import Path
 from base64 import b64encode
+import json
+from math import isfinite
+import re
 from shutil import disk_usage, rmtree
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from engine.project import atomic_json
-from engine.sequence import SEQUENCE_FPS, clip_intervals, frame_count, seconds_intervals, sequence_audit, sequence_timeline
+from engine.sequence import SEQUENCE_FPS, clip_intervals, frame_count, seconds_intervals, sequence_audit, sequence_timeline, with_cut
 from media.render import dimensions, subtitle_filter, write_ass
 from media.tools import binary, probe, run, verify_source
 from subtitles.captions import remap, srt
+
+
+TARGET_LOUDNESS = -16
+TRUE_PEAK_LIMIT = -2
 
 
 def sequence_framing(width, height):
@@ -46,14 +53,52 @@ def encode_clip(clip, frames, settings, width, height, audio, output, directory,
     run(args, cwd=directory)
 
 
+def concat_input(directory, filename, names):
+    (directory / filename).write_text("".join(f"file '{name}'\n" for name in names), encoding="ascii")
+    return ["-f", "concat", "-safe", "1", "-i", filename]
+
+
 def join_clips(directory, names, audio, destination):
-    (directory / "clips.txt").write_text("".join(f"file '{name}'\n" for name in names), encoding="ascii")
-    args = [binary("ffmpeg"), "-nostdin", "-v", "error", "-f", "concat", "-safe", "1",
-            "-i", "clips.txt", "-map", "0:v:0", "-c:v", "copy"]
+    args = [binary("ffmpeg"), "-nostdin", "-v", "error", *concat_input(directory, "clips.txt", names),
+            "-map", "0:v:0", "-c:v", "copy"]
     if audio:
         args += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
     args += ["-movflags", "+faststart", str(destination)]
     run(args, cwd=directory)
+
+
+def measure_gain(directory, names):
+    # Analyze exactly the retained PCM audio of one source, even if it appears more than once.
+    args = [binary("ffmpeg"), "-nostdin", "-hide_banner", "-nostats", "-v", "info",
+            *concat_input(directory, "measure.txt", names), "-map", "0:a:0",
+            "-af", f"loudnorm=I={TARGET_LOUDNESS}:TP={TRUE_PEAK_LIMIT}:LRA=11:print_format=json", "-f", "null", "-"]
+    measured = run(args, cwd=directory)
+    stats = re.search(r'\{\s*"input_i"[^}]+\}', measured.stderr)
+    if stats is None:
+        raise RuntimeError("클립 음량을 측정할 수 없습니다.")
+    levels = json.loads(stats[0])
+    loudness, peak = float(levels["input_i"]), float(levels["input_tp"])
+    if not isfinite(loudness) or not isfinite(peak) or loudness < -50:
+        return 0.0
+    # A constant gain prevents jumps between cuts. Cap boost and leave headroom for AAC.
+    return round(min(12.0, TARGET_LOUDNESS - loudness, TRUE_PEAK_LIMIT - peak), 2)
+
+
+def balance_audio(directory, groups, progress):
+    gains = {}
+    for index, (clip_id, names) in enumerate(groups.items()):
+        progress(83 + 10 * index / len(groups), f"클립 음량 맞추는 중 ({index + 1}/{len(groups)})")
+        gain = gains[clip_id] = measure_gain(directory, names)
+        if gain == 0:
+            continue
+        for name in names:
+            adjusted = directory / "leveled.mov"
+            args = [binary("ffmpeg"), "-nostdin", "-v", "error", "-i", name,
+                    "-map", "0:v:0", "-c:v", "copy", "-video_track_timescale", "30000",
+                    "-map", "0:a:0", "-af", f"volume={gain}dB", "-c:a", "pcm_s16le", str(adjusted)]
+            run(args, cwd=directory)
+            adjusted.replace(directory / name)
+    return gains
 
 
 def edge_intervals(spans, *, tail=False):
@@ -112,12 +157,9 @@ def sequence_connection(project, left, right, progress):
             "from": left["name"], "to": right["name"]}
 
 
-def sequence_cut_preview(project, clip, cut_id, progress):
-    cut = next((item for item in clip.get("cuts", []) if item["id"] == cut_id), None)
-    if cut is None:
-        raise ValueError("미리 볼 편집 구간을 다시 선택해 주세요.")
+def sequence_cut_preview(project, clip, cut, progress):
     verify_source(clip["source"])
-    proposed = {**clip, "cuts": [dict(item, enabled=True) if item is cut else item for item in clip["cuts"]]}
+    proposed = with_cut(clip, {**cut, "enabled": True})
     spans = clip_intervals(proposed)
     if not spans:
         raise ValueError("클립 전체를 삭제할 수 없습니다.")
@@ -141,18 +183,26 @@ def render_sequence(project, directory, progress):
     final = output / "edited.mp4"
     captions, timeline, completed = [], [], 0
     settings = project["settings"]
+    match_volume = settings["normalize"] and audio
+    gains = {}
     try:
         with TemporaryDirectory(prefix="segments-", dir=output) as temporary:
             segments = Path(temporary)
-            records = []
+            records, audio_groups = [], {}
+            encoding_progress = 79 if match_volume else 89
             for index, (clip, spans) in enumerate(clips):
-                progress(2 + 89 * completed / total, f"클립 인코딩 중 ({index+1}/{len(clips)})")
+                progress(2 + encoding_progress * completed / total, f"클립 인코딩 중 ({index+1}/{len(clips)})")
+                first_part = len(records)
                 local = encode_intervals(clip, spans, settings, width, height, audio, segments, records)
+                if match_volume and clip["source"]["hasAudio"]:
+                    audio_groups.setdefault(clip["id"], []).extend(records[first_part:])
                 offset = completed / SEQUENCE_FPS
                 captions.extend(dict(cue, start=cue["start"]+offset, end=cue["end"]+offset) for cue in local)
                 completed += frame_count(spans)
                 timeline.append({"id": clip["id"], "name": clip["name"], "start": offset,
                                  "end": completed / SEQUENCE_FPS})
+            if match_volume:
+                gains = balance_audio(segments, audio_groups, progress)
             progress(94, "클립과 오디오 연결 중")
             join_clips(segments, records, audio, final)
             result = probe(final)
@@ -161,7 +211,7 @@ def render_sequence(project, directory, progress):
         (output / "captions.srt").write_text(srt(captions), encoding="utf-8-sig")
         atomic_json(output / "report.json", {"revision": project["revision"], "clips": project["clips"],
                     "timeline": timeline, "output": result, "audit": sequence_audit(project),
-                    "captionCount": len(captions), "settings": settings})
+                    "captionCount": len(captions), "settings": settings, "clipAudioGainDb": gains})
     except BaseException:
         rmtree(output, ignore_errors=True)
         raise

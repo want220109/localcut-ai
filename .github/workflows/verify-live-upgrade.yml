@@ -11,7 +11,7 @@ permissions:
   contents: read
   actions: read
 env:
-  LOCALCUT_BASE_VERSION: '0.3.4'
+  LOCALCUT_BASE_VERSION: '0.3.5'
 jobs:
   upgrade:
     if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease

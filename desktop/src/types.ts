@@ -38,6 +38,7 @@ export interface OutlineSection {
 export interface OutlineRow extends OutlineSection {name:string;seconds:number}
 export interface SequenceOutlineDraft {revision:number;rows:OutlineRow[];hasCaptions:boolean}
 export interface SequenceOutlinePreview {video:string;seconds:number}
+export interface CutRange {start:number;end:number}
 export interface SequenceCutPreview {video:string;joinAt:number}
 export interface CutPreview {
  video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];

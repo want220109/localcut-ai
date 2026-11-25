@@ -329,14 +329,42 @@ async function checkSequenceCuts(app,page,ffmpeg,testRoot){
  await check.click();
  await cuts.getByText(/컷 적용 1개/).waitFor();
  assert.equal(await check.isChecked(),true);
+ const current=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ const original=current.project.clips[0].cuts.find(cut=>cut.kind==='silence'&&cut.enabled);
+ const adjustedStart=Number((original.start+.2).toFixed(3));
+ await row.getByRole('button',{name:'길이 조정',exact:true}).click();
+ const adjust=cuts.getByRole('region',{name:'컷 길이 조정',exact:true});
+ await adjust.getByRole('spinbutton',{name:'시작 (초)',exact:true}).fill(String(adjustedStart));
+ const originalEnd=await adjust.getByRole('spinbutton',{name:'끝 (초)',exact:true}).inputValue();
+ assert.equal(Number(originalEnd),original.end);
+ await adjust.getByRole('button',{name:'조정한 컷 미리보기',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.sequence-ai-cuts video')?.readyState>=1);
+ const beforeSave=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ assert.equal(beforeSave.project.revision,current.project.revision);
+ await adjust.getByRole('button',{name:'길이 조정 저장',exact:true}).click();
+ await adjust.waitFor({state:'detached'});
+ const afterSave=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ const adjustedCut=afterSave.project.clips[0].cuts.find(cut=>cut.id===original.id);
+ assert.equal(adjustedCut.start,adjustedStart);
+ assert.equal(adjustedCut.enabled,true);
+ assert.ok(afterSave.audit.outputDuration>current.audit.outputDuration);
+
+ await page.getByRole('button',{name:'설정 확인 단계',exact:true}).click();
+ const level=page.getByRole('checkbox',{name:'클립 간 음량 맞추기',exact:true});
+ assert.equal(await level.isChecked(),false);
+ await level.click();
+ await page.waitForFunction(()=>[...document.querySelectorAll('.sequence-audio-option input')].some(field=>field.checked&&!field.disabled));
  await page.getByRole('button',{name:'MP4 저장 단계',exact:true}).click();
  const target=path.join(testRoot,'클립 안 편집 결과.mp4');
  await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},target);
  await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
  await page.locator('.export-feedback.saved').getByText(target,{exact:true}).waitFor({timeout:60000});
  const result=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
- assert.ok(result.project.output.duration>8.5&&result.project.output.duration<9.5,'A real rendered cut must shorten the merged video');
+ assert.ok(result.project.output.duration>8.5&&result.project.output.duration<10,'A real rendered cut must shorten the merged video');
  assert.equal(result.project.clips[0].captions[0].text,'교정한 첫 대화');
+ assert.equal(result.project.settings.normalize,true);
+ const report=JSON.parse(await fs.readFile(result.project.output.report,'utf8'));
+ assert.ok(Object.hasOwn(report.clipAudioGainDb,result.project.clips[0].id),'Export measures the audible clip');
  console.log('Multi-video AI cut suggestion, automatic trim, local preview, restore, and shortened MP4 passed');
 }
 async function checkSequenceOutline(app,page,testRoot){
