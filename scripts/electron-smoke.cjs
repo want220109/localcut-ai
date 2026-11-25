@@ -138,6 +138,73 @@ async function checkTranscriptEdit(page,id,previousOutput){
  assert.ok(Math.abs(rendered.project.output.duration-4.49)<.12);
  console.log('Transcript multi-selection, immediate duration, local cut playback and selective restoration passed');
 }
+async function checkSequence(app,page,ffmpeg,testRoot){
+ await app.evaluate(({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];window.focus();window.webContents.focus();});
+ const clips=[
+  {name:'여행-출발.mp4',color:'red',size:'320x180',date:'2025-04-02T01:02:00Z',audio:true},
+  {name:'여행-도착.mp4',color:'blue',size:'180x320',date:'2025-04-02T01:01:00Z',audio:false},
+  {name:'여행-식사.mp4',color:'green',size:'320x180',date:'2025-04-02T01:03:00Z',audio:false},
+ ];
+ const paths=clips.map(clip=>path.join(testRoot,clip.name));
+ for(const [index,clip] of clips.entries()){
+  const args=['-v','error','-y','-f','lavfi','-i',`color=${clip.color}:s=${clip.size}:r=25:d=2`];
+  if(clip.audio)args.push('-f','lavfi','-i','sine=f=440:r=48000:d=2','-c:a','aac');
+  args.push('-metadata','creation_time='+clip.date,'-c:v','libx264','-threads','2','-pix_fmt','yuv420p',paths[index]);
+  const result=spawnSync(ffmpeg,args,{encoding:'utf8'});
+  if(result.status!==0)throw new Error(result.stderr);
+ }
+ const hash=async file=>crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex');
+ const before=await Promise.all(paths.map(hash));
+ await app.evaluate(({dialog},files)=>{dialog.showOpenDialog=async(_window,options)=>{
+  if(!options.properties.includes('multiSelections'))throw new Error('Multiple selection missing');
+  return {canceled:false,filePaths:files};
+ };},paths);
+ await page.getByRole('button',{name:'영상 변경',exact:true}).click();
+ const sequence=page.getByRole('region',{name:'여러 원본 편집',exact:true});
+ const rows=sequence.locator('li[data-clip]');
+ await sequence.getByText('3/3개 포함 · 촬영 시간순',{exact:true}).waitFor();
+ const order=()=>rows.evaluateAll(items=>items.map(item=>item.dataset.clip));
+ assert.deepEqual(await order(),[clips[1].name,clips[0].name,clips[2].name]);
+ await sequence.locator('li[data-clip="'+clips[0].name+'"]').dragTo(rows.first());
+ await sequence.getByText('3/3개 포함 · 편집 순서',{exact:true}).waitFor();
+ assert.deepEqual(await order(),clips.map(clip=>clip.name));
+ await sequence.getByRole('button',{name:clips[1].name+' 위로',exact:true}).click();
+ await page.waitForFunction(name=>document.querySelector('.sequence-list li').dataset.clip===name,clips[1].name,{timeout:10000});
+ await sequence.getByRole('button',{name:clips[0].name+' 위로',exact:true}).click();
+ await page.waitForFunction(name=>document.querySelector('.sequence-list li').dataset.clip===name,clips[0].name,{timeout:10000});
+ const exclude=sequence.getByRole('checkbox',{name:clips[2].name+' 포함',exact:true});
+ await exclude.click();
+ await sequence.getByText('예상 길이 00:04.0',{exact:true}).waitFor();
+ assert.equal(await exclude.isChecked(),false);
+ await sequence.locator('.sequence-name').filter({hasText:clips[1].name}).click();
+ const source=sequence.locator('video[aria-label="선택한 원본 미리보기"]');
+ await source.waitFor();
+ await page.waitForFunction(()=>document.querySelector('.sequence-preview video')?.videoWidth===180,null,{timeout:10000});
+ await sequence.getByRole('button',{name:'클립 자막 만들기',exact:true}).click();
+ await sequence.getByText('인식된 음성이 없습니다.',{exact:true}).waitFor();
+ await sequence.locator('.sequence-name').filter({hasText:clips[0].name}).click();
+ await sequence.getByRole('button',{name:'다음 클립 연결부 보기',exact:true}).click();
+ const connection=sequence.locator('video[aria-label="클립 연결부 미리보기"]');
+ await connection.waitFor().catch(async error=>{console.error(await page.getByRole('alert').allTextContents());throw error;});
+ await page.waitForFunction(()=>Math.abs(document.querySelector('.sequence-preview video')?.duration-4)<.12,null,{timeout:10000});
+ await sequence.getByLabel('가로 출력 해상도',{exact:true}).selectOption('720');
+ await sequence.getByRole('button',{name:'MP4 출력',exact:true}).click();
+ await page.locator('.result-panel .status-pill').filter({hasText:'출력 완료'}).waitFor({timeout:60000});
+ const savedFile=path.join(testRoot,'여러 원본 완성.mp4');
+ await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},paths[0]);
+ await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+ await page.locator('.export-feedback.error').getByText(/원본 영상에는 저장할 수 없습니다/).waitFor();
+ await app.evaluate(({dialog},filename)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:filename});},savedFile);
+ await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+ await page.locator('.export-feedback.saved').getByText(savedFile,{exact:true}).waitFor();
+ assert.ok((await fs.stat(savedFile)).size>1000);
+ assert.deepEqual(await Promise.all(paths.map(hash)),before);
+ await page.reload();
+ await page.getByRole('button',{name:/여행-도착 외 2개/}).click();
+ await sequence.getByText('2/3개 포함 · 편집 순서',{exact:true}).waitFor();
+ assert.deepEqual(await order(),clips.map(clip=>clip.name));
+ console.log('Multi-file picker, capture order, drag and keyboard order, excluded clip, original and join preview, MP4 save, source guards and persistence passed');
+}
 async function main(){
  const root=path.resolve(__dirname,'..');
  const testRoot=path.join(root,'test-results',process.env.LOCALCUT_PACKAGED_EXE?'installed-electron':'electron');await fs.mkdir(testRoot,{recursive:true});
@@ -304,9 +371,13 @@ async function main(){
   const saved=await reopened.evaluate(id=>window.localcut.call('get',{id}),p.id);
   if(saved.project.cuts.some(c=>c.enabled)||!saved.project.output||saved.project.settings.fontFamily!=='nanum'||saved.project.settings.highlightWords!=='핵심')throw new Error('Project or subtitle settings were not preserved after full restart');
   await checkLongform(app,reopened,sample,testRoot);
+  await checkSequence(app,reopened,ffmpeg,testRoot);
   assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
+ } catch(error){
+  console.error(error);
+  throw error;
  } finally {if(app)await app.close();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

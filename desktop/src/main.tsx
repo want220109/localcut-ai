@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import type {Audit,Caption,Cut,CutPreview,Health,History,LongformDraft,LongformResult,Progress,Project,ProjectResult,Settings,TranscriptOperation,Update} from './types';
+import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,History,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,Settings,TranscriptOperation,Update} from './types';
 import './styles.css';
 import {SubtitleControls} from './SubtitleControls';
 import {EditSummary} from './EditSummary';
@@ -9,6 +9,7 @@ import {CaptionFramePreview} from './CaptionFramePreview';
 import {LongformEditor} from './LongformEditor';
 import {TranscriptEditor} from './TranscriptEditor';
 import {CutConnectionPreview} from './CutConnectionPreview';
+import {SequenceEditor} from './SequenceEditor';
 import subtitleCatalog from '../../subtitles/presets.json';
 import {version as appVersion} from '../../package.json';
 
@@ -59,9 +60,25 @@ function App(){
  useEffect(()=>setConnection(null),[project?.id,project?.revision,tab]);
  function accept(result:ProjectResult|Project){if('project' in result){setProject(result.project);setAudit(result.audit);if(result.message)setNotice(result.message);}else{setProject(result);setAudit(null);}}
  async function task(fn:()=>Promise<void>){if(busy)return;setBusy(true);setError('');setNotice('');setProgress({percent:0,message:'준비 중'});try{await fn();}catch(e){setError(e instanceof Error?e.message:String(e));}finally{setBusy(false);}}
- async function load(){await task(async()=>{const p=await call<Project|null>('pick');if(p){accept(p);setHistory(await call<History[]>('history'));}});}
+ async function load(){await task(async()=>{const p=await call<Project|ProjectResult|null>('pick');if(p){accept(p);setHistory(await call<History[]>('history'));}});}
  async function open(id:string){await task(async()=>{accept(await call<ProjectResult>('get',{id}));});}
  async function edit(changes:Record<string,unknown>){if(!project)return;await task(async()=>{accept(await call<ProjectResult>('edit',{id:project.id,changes}));});}
+ async function changeSequence(action:string,fields:Record<string,unknown>){
+  if(!project||busy)return false;
+  let saved=false;
+  await task(async()=>{
+   accept(await call<ProjectResult>(action,{id:project.id,revision:project.revision,...fields}));
+   saved=true;
+  });
+  return saved;
+ }
+ async function sequenceMedia<T>(action:string,clipId:string):Promise<T|null>{
+  if(!project||busy)return null;
+  outputVideo.current?.pause();
+  let result:T|null=null;
+  await task(async()=>{result=await call<T>(action,{id:project.id,revision:project.revision,clipId});});
+  return result;
+ }
  async function editTranscript(operation:TranscriptOperation,lineIds:string[]){
   if(!project)return;
   await task(async()=>accept(await call<ProjectResult>('editTranscript',{id:project.id,revision:project.revision,operation,lineIds})));
@@ -132,19 +149,31 @@ function App(){
  }
  async function updateAction(operation:string,channel?:string){await task(async()=>{setUpdate(await call<Update>('update',{operation,channel}));});}
  async function installModel(importModel=false){await task(async()=>{await call('model',{model,consent:!importModel,import:importModel});await refresh();setNotice('모델 준비가 완료되었습니다. 이제 인터넷 없이 분석할 수 있습니다.');});}
- async function drop(e:React.DragEvent){e.preventDefault();setDrag(false);const file=e.dataTransfer.files[0];if(!file||!bridge||busy)return;await task(async()=>{accept(await bridge.dropped(file));setHistory(await call<History[]>('history'));});}
+ async function drop(e:React.DragEvent){e.preventDefault();setDrag(false);const files=Array.from(e.dataTransfer.files);if(!files.length||!bridge||busy)return;await task(async()=>{accept(files.length===1?await bridge.dropped(files[0]):await bridge.droppedFiles(files));setHistory(await call<History[]>('history'));});}
  function seek(value:number){if(sourceVideo.current)sourceVideo.current.currentTime=value;setSourceTime(value);}
  async function toggle(c:Cut){if(project)await edit({cuts:project.cuts.map(x=>x.id===c.id?{...x,enabled:!x.enabled}:x)});}
  async function changeBounds(c:Cut,key:'start'|'end',value:string){const number=Number(value);if(!project||!Number.isFinite(number))return;await edit({cuts:project.cuts.map(x=>x.id===c.id?{...x,[key]:number,review:true,reason:'사용자가 편집 구간을 조정함'}:x)});}
  async function addManual(){if(!project)return;const c:Cut={id:crypto.randomUUID().replaceAll('-','').slice(0,12),start:Number(manualStart),end:Number(manualEnd),kind:'manual',reason:'사용자가 직접 지정한 삭제 구간',confidence:1,review:false,enabled:true};await edit({cuts:[...project.cuts,c].sort((a,b)=>a.start-b.start)});}
  const p=project,sourceDuration=p?.source.duration||0,outDuration=audit?.outputDuration??sourceDuration;
- const removed=Math.max(0,sourceDuration-outDuration),pending=p?.cuts.filter(c=>c.review&&!c.enabled).length||0;
+ const removed=p?.clips?0:Math.max(0,sourceDuration-outDuration),pending=p?.cuts.filter(c=>c.review&&!c.enabled).length||0;
  const selectedModel=health?.models.find(m=>m.id===model),stale=!!p?.output&&p.output.revision!==p.revision;
  const disabled=busy||!bridge;
  const saveFeedback=mp4Save?.id===p?.id?mp4Save:null;
  const defaultCaptionSize=subtitleCatalog.automaticSizes.standard;
  const captionSize=p?.settings.fontSize??defaultCaptionSize;
  const automaticCaptionSize=!p||p.settings.captionSizeMode==='auto';
+ const resultPanel=(<div className="panel result-panel"><div className="section-title"><h2><span className="number-label">02</span> 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
+       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
+       <div className="result-footer"><div><span>예상 완성 길이</span><strong>{p?time(outDuration):'--:--'} {removed>0&&<small>−{time(removed)}</small>}</strong></div><div className="button-row">
+        {!!p?.outputUrl&&!stale&&<button className="quiet" disabled={disabled} onClick={()=>revealMp4()}><Icon name="folder" size={15}/> 출력 파일 위치</button>}
+        <button className="secondary" disabled={disabled||!p} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':'MP4 저장'}</button>
+       </div></div>
+       {saveFeedback&&<div className={'export-feedback '+saveFeedback.state} role={saveFeedback.state==='error'?'alert':'status'}>
+        {saveFeedback.state==='saved'&&<strong>MP4 저장 완료</strong>}
+        <span>{saveFeedback.message}</span>
+        {saveFeedback.state==='saved'&&<button className="secondary" disabled={disabled} onClick={()=>revealMp4(true)}>저장한 파일 위치</button>}
+       </div>}
+      </div>);
  return <div className="app-shell">
   <aside className="sidebar">
    <a className="brand" href="#" onClick={e=>e.preventDefault()}><span className="brand-mark"><Icon name="cut" size={23}/></span><span>LocalCut<span className="brand-ai">AI</span></span></a>
@@ -166,24 +195,23 @@ function App(){
     {error&&<div className="banner error" role="alert"><strong>작업을 완료하지 못했습니다.</strong><span>{error}</span><button onClick={()=>setError('')} aria-label="오류 닫기">×</button></div>}
     {notice&&<div className="banner success" role="status">{notice}<button onClick={()=>setNotice('')} aria-label="안내 닫기">×</button></div>}
     {settingsOpen&&<section className="settings-panel panel"><div className="section-title"><h2><Icon name="settings" size={18}/> 모델과 업데이트</h2><button className="quiet" onClick={()=>setSettingsOpen(false)}>닫기</button></div><div className="settings-columns"><div><h3>로컬 한국어 음성 모델</h3><p>모델 파일만 외부에서 다운로드합니다. 영상과 대본은 전송하지 않습니다.</p><label>음성인식 모델<select value={model} disabled={busy} onChange={e=>setModel(e.target.value)}>{(health?.models||[{id:'small',label:'한국어 권장 · small',sizeMB:490,ready:false},{id:'tiny',label:'속도 우선 · tiny',sizeMB:76,ready:false}]).map(m=><option key={m.id} value={m.id}>{m.label} · 약 {m.sizeMB} MB {m.ready?'· 준비됨':''}</option>)}</select></label><div className="model-status">{selectedModel?.ready?'● 로컬 모델 준비 완료':'○ 모델을 먼저 준비해 주세요'}</div><div className="button-row"><button className="secondary" disabled={disabled||selectedModel?.ready} onClick={()=>installModel()}>다운로드에 동의하고 설치</button><button className="quiet" disabled={disabled} onClick={()=>installModel(true)}>오프라인 폴더 가져오기</button></div><p className="small muted">{health?.cpuNote||'CPU에서도 실행할 수 있습니다. 긴 영상은 영상 길이보다 오래 걸릴 수 있습니다.'}<br/>GPU 사용은 CUDA 드라이버·라이브러리 준비 상태에 따라 달라집니다.</p></div><div><h3>프로그램 업데이트</h3><label>배포 채널<select disabled={busy||update.status==='downloading'||update.status==='downloaded'} value={update.channel} onChange={e=>updateAction('check',e.target.value)}><option value="stable">안정 버전</option><option value="beta">테스트 버전</option></select></label><p>{update.message}</p>{update.version&&<span className="tag">v{update.version}</span>}{update.notes&&<pre className="release-notes">{update.notes}</pre>}{update.status==='downloading'&&<progress max={100} value={update.percent||0}/>}<div className="button-row"><button className="secondary" disabled={disabled||update.status==='unconfigured'} onClick={()=>updateAction('check')}>업데이트 확인</button>{update.status==='available'&&<button className="secondary" disabled={disabled} onClick={()=>updateAction('download')}>다운로드</button>}{update.status==='downloaded'&&<button className="primary" disabled={disabled} onClick={()=>{if(window.confirm('작업은 자동 저장되어 있습니다. 업데이트를 설치하고 다시 시작할까요?'))updateAction('install');}}>설치하고 재시작</button>}</div><p className="small muted">편집 중에는 설치하지 않습니다. 업데이트 후에도 작업 기록과 모델은 유지됩니다.</p></div></div></section>}
+    {p?.clips?<div className="sequence-workspace">
+     <SequenceEditor key={p.id} project={p} disabled={disabled} progress={busy?progress:null} duration={outDuration} formatTime={time}
+      edit={async(rows:ClipSelection[])=>{await changeSequence('editSequence',{rows});}}
+      preview={async id=>(await sequenceMedia<{url:string}>('sequencePreview',id))?.url??null}
+      connection={id=>sequenceMedia<SequenceConnection>('sequenceConnection',id)}
+      analyze={async clipId=>{await changeSequence('sequenceAnalyze',{clipId,model});}}
+      saveCaption={(clipId,caption)=>changeSequence('sequenceCaption',{clipId,captionId:caption.id,text:caption.text})}
+      setting={setting} render={()=>operate('render')} undo={()=>operate('undo')} replace={load} saveSubtitles={()=>save('srt')}/>
+     {resultPanel}
+    </div>:<>
     <div className="step-bar"><div className="step complete"><b>{p?<Icon name="check" size={13}/>:1}</b>영상 불러오기</div><span/><div className={'step '+(p?'complete':'')}><b>{p?.analyzed?<Icon name="check" size={13}/>:2}</b>AI 분석 · 편집</div><span/><div className={'step '+(p?.analyzed?'complete':'')}><b>3</b>검수 · 내보내기</div></div>
     <div className="editor-grid">
      <section className="media-column">
       <div className="panel source-panel"><div className="section-title"><h2><span className="number-label">01</span> 원본 영상</h2>{p&&<button className="quiet" disabled={disabled} onClick={load}><Icon name="folder" size={14}/> 영상 변경</button>}</div>
-       {p?<><div className="video-stage"><video ref={sourceVideo} src={p.sourceUrl} controls preload="metadata" onTimeUpdate={e=>setSourceTime(e.currentTarget.currentTime)}/><span className="video-label">{p.preview?'ORIGINAL · 호환 미리보기':'ORIGINAL'}</span></div><PreviewSeekControls videoRef={sourceVideo} mediaKey={p.sourceUrl} label="원본 영상" onSeek={setSourceTime}/><div className="file-summary"><div className="file-icon"><Icon name="film"/></div><div><strong title={p.name}>{p.name}</strong><p>{p.source.width} × {p.source.height} <i/> {p.source.fps.toFixed(2)} fps <i/> {(p.source.bytes/1024/1024).toFixed(1)} MB</p></div><span className="duration">{time(p.source.duration)}</span></div></>:<button className={'dropzone '+(drag?'dragging':'')} disabled={disabled} onClick={load} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={drop}><div className="upload-orbit"><div><Icon name="upload" size={29}/></div></div><h3>이야기가 담긴 영상을 불러오세요</h3><p>파일을 여기로 드래그하거나 클릭해 선택하세요.</p><span className="select-file"><Icon name="folder" size={15}/> 영상 선택하기</span><small>MP4, MOV, AVI, MKV <span>·</span> 원본 파일은 그대로 보존됩니다</small></button>}
+       {p?<><div className="video-stage"><video ref={sourceVideo} src={p.sourceUrl} controls preload="metadata" onTimeUpdate={e=>setSourceTime(e.currentTarget.currentTime)}/><span className="video-label">{p.preview?'ORIGINAL · 호환 미리보기':'ORIGINAL'}</span></div><PreviewSeekControls videoRef={sourceVideo} mediaKey={p.sourceUrl} label="원본 영상" onSeek={setSourceTime}/><div className="file-summary"><div className="file-icon"><Icon name="film"/></div><div><strong title={p.name}>{p.name}</strong><p>{p.source.width} × {p.source.height} <i/> {p.source.fps.toFixed(2)} fps <i/> {(p.source.bytes/1024/1024).toFixed(1)} MB</p></div><span className="duration">{time(p.source.duration)}</span></div></>:<button className={'dropzone '+(drag?'dragging':'')} disabled={disabled} onClick={load} onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={()=>setDrag(false)} onDrop={drop}><div className="upload-orbit"><div><Icon name="upload" size={29}/></div></div><h3>이야기가 담긴 영상을 불러오세요</h3><p>영상 하나 또는 여러 개를 드래그하거나 선택하세요.</p><span className="select-file"><Icon name="folder" size={15}/> 영상 선택하기</span><small>MP4, MOV, AVI, MKV <span>·</span> 원본 파일은 그대로 보존됩니다</small></button>}
       </div>
-      <div className="panel result-panel"><div className="section-title"><h2><span className="number-label">02</span> 편집 결과</h2>{p?.output&&<span className={'status-pill '+(stale?'warning':'')}>{stale?'수정 후 다시 출력 필요':'출력 완료'}</span>}</div>
-       {p?.outputUrl?<><div className="video-stage"><video key={p.output?.path} ref={outputVideo} src={p.outputUrl} controls preload="metadata"/><span className="video-label result">{stale?'이전 출력 미리보기':'EDITED'}</span></div><PreviewSeekControls videoRef={outputVideo} mediaKey={p.outputUrl} label="편집 결과"/></>:<div className="result-empty"><div className="result-placeholder"><Icon name="play" size={23}/></div><h3>{busy?'당신의 이야기를 다듬고 있어요':'완성될 이야기를 기다리는 중'}</h3><p>{p?.analyzed?'편집 구간을 확인하고 MP4를 출력해 주세요.':'AI 분석 후 편집 결과를 여기서 확인하세요.'}</p></div>}
-       <div className="result-footer"><div><span>예상 완성 길이</span><strong>{p?time(outDuration):'--:--'} {removed>0&&<small>−{time(removed)}</small>}</strong></div><div className="button-row">
-        {!!p?.outputUrl&&!stale&&<button className="quiet" disabled={disabled} onClick={()=>revealMp4()}><Icon name="folder" size={15}/> 출력 파일 위치</button>}
-        <button className="secondary" disabled={disabled||!p} onClick={()=>save('mp4')}><Icon name="download" size={15}/>{saveFeedback?.state==='saving'?'저장 중…':'MP4 저장'}</button>
-       </div></div>
-       {saveFeedback&&<div className={'export-feedback '+saveFeedback.state} role={saveFeedback.state==='error'?'alert':'status'}>
-        {saveFeedback.state==='saved'&&<strong>MP4 저장 완료</strong>}
-        <span>{saveFeedback.message}</span>
-        {saveFeedback.state==='saved'&&<button className="secondary" disabled={disabled} onClick={()=>revealMp4(true)}>저장한 파일 위치</button>}
-       </div>}
-      </div>
+      {resultPanel}
      </section>
      <aside className="controls-column panel"><div className="section-title"><h2><Icon name="spark" size={18}/> 편집 설정</h2><span className="tag">AI ASSIST</span></div><div className="controls-body"><label className="field-label">어떤 분위기로 편집할까요?</label><div className="style-options">{([{id:'basic',title:'기본 편집',sub:'자연스러운 흐름, 편안한 호흡',icon:'film',label:'RECOMMENDED'},{id:'fast',title:'빠른 편집',sub:'간결한 컷, 경쾌한 전개',icon:'spark',label:''},{id:'shorts',title:'쇼츠 · 릴스',sub:'세로 화면, 핵심 장면 중심',icon:'play',label:'9:16'}] as const).map(s=><button key={s.id} disabled={disabled||!p} onClick={()=>edit({style:s.id,settings:{aspect:s.id==='shorts'?'9:16':'source',zoom:s.id==='basic'?1:s.id==='fast'?1.08:1.05}})} className={'style-option '+((p?.style||'basic')===s.id?'chosen':'')}><span className="style-icon"><Icon name={s.icon} size={20}/></span><span><strong>{s.title}{s.label&&<em>{s.label}</em>}</strong><small>{s.sub}</small></span><span className="radio"/></button>)}</div>
       <div className="field-heading"><span><Icon name="text" size={16}/> 자동 자막</span><label className="switch"><input type="checkbox" aria-label="자막 사용" disabled={disabled||!p} checked={p?.settings.subtitles??true} onChange={e=>setting('subtitles',e.target.checked)}/><span/></label></div>
@@ -210,6 +238,7 @@ function App(){
       <form className="command-bar" onSubmit={e=>{e.preventDefault();if(!command.trim())return;task(async()=>{accept(await call<ProjectResult>('command',{id:p.id,text:command}));setCommand('');});}}><Icon name="spark" size={20}/><input aria-label="자연어 수정 요청" disabled={disabled} value={command} onChange={e=>setCommand(e.target.value)} placeholder="예: 자막을 더 크게 해줘 · 잘라낸 대화를 다시 살려줘"/><span>기본 명령</span><button type="submit" disabled={disabled||!command.trim()} aria-label="수정 요청 적용"><Icon name="arrow" size={18}/></button></form>
      </>:<div className="review-empty"><Icon name="cut" size={28}/><p>AI가 제안한 편집점을 확인하고, 당신의 감각으로 마무리하세요.</p><span>구간 복원 · 자막 수정 · 대본 비교 · 자연어 수정</span></div>}
     </section>
+    </>}
     <footer><span><Icon name="shield" size={13}/> 당신의 영상은 당신의 PC 안에.</span><span>H.264 / AAC <i/> MP4 OUTPUT</span></footer>
    </div>
   </main>

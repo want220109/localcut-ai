@@ -6,9 +6,22 @@ import os
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
+
+
+def capture_time(*tags):
+    for key in ("com.apple.quicktime.creationdate", "creation_time"):
+        for item in tags:
+            try:
+                value = datetime.fromisoformat(item.get(key, "").strip().replace("Z", "+00:00"))
+                if value.tzinfo is not None and value.year >= 1970:
+                    return value.timestamp()
+            except (ValueError, TypeError, OverflowError):
+                continue
+    return None
 
 
 def binary(name):
@@ -59,7 +72,8 @@ def probe(filename):
             "hasAudio": any(s["codec_type"] == "audio" for s in data["streams"]),
             "audioCodec": next((s["codec_name"] for s in data["streams"] if s["codec_type"]=="audio"),None),
             "bytes": path.stat().st_size, "mtimeNs": path.stat().st_mtime_ns,
-            "codec": video.get("codec_name", "unknown")}
+            "codec": video.get("codec_name", "unknown"),
+            "capturedAt": capture_time(data.get("format", {}).get("tags", {}), video.get("tags", {}))}
 
 
 def verify_source(source):

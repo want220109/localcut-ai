@@ -34,6 +34,21 @@ def atomic_json(path: Path, data):
         tmp.unlink(missing_ok=True)
 
 
+def validate_items(items, duration, *, cuts=False):
+    if not isinstance(items, list) or len(items) > 100000:
+        raise ValueError("작업 데이터가 너무 크거나 손상되었습니다.")
+    seen = set()
+    for item in items:
+        a, b = finite(item["start"], 0, duration), finite(item["end"], 0, duration)
+        if b <= a or item["id"] in seen:
+            raise ValueError("구간 시작·종료 또는 ID가 잘못되었습니다.")
+        seen.add(item["id"])
+        if "text" in item and (not isinstance(item["text"], str) or len(item["text"]) > 10000):
+            raise ValueError("자막이 너무 깁니다.")
+        if cuts and (type(item.get("enabled")) is not bool or type(item.get("review")) is not bool):
+            raise ValueError("삭제 구간 상태가 잘못되었습니다.")
+
+
 def validate(p):
     if p.get("schema") != SCHEMA:
         raise ValueError("지원하지 않는 작업 파일 버전입니다. 원래 버전의 앱으로 열어 주세요.")
@@ -43,18 +58,10 @@ def validate(p):
     if p["style"] not in {"basic", "fast", "shorts"}:
         raise ValueError("알 수 없는 편집 스타일입니다.")
     for key in ("cuts", "transcript", "captions"):
-        if not isinstance(p[key], list) or len(p[key]) > 100000:
-            raise ValueError("작업 데이터가 너무 크거나 손상되었습니다.")
-        seen = set()
-        for item in p[key]:
-            a, b = finite(item["start"], 0, duration), finite(item["end"], 0, duration)
-            if b <= a or item["id"] in seen:
-                raise ValueError("구간 시작·종료 또는 ID가 잘못되었습니다.")
-            seen.add(item["id"])
-            if "text" in item and (not isinstance(item["text"], str) or len(item["text"]) > 10000):
-                raise ValueError("자막이 너무 깁니다.")
-            if key == "cuts" and (type(item.get("enabled")) is not bool or type(item.get("review")) is not bool):
-                raise ValueError("삭제 구간 상태가 잘못되었습니다.")
+        validate_items(p[key], duration, cuts=key == "cuts")
+    if "clips" in p:
+        from engine.sequence import validate_clips
+        validate_clips(p["clips"])
     settings = p["settings"] = with_defaults(p["settings"])
     validate_style(settings)
     finite(settings["fontSize"], FONT_SIZE_LIMITS["min"], FONT_SIZE_LIMITS["max"])
@@ -152,6 +159,9 @@ def cut_summary(p):
 
 
 def transcript_audit(p):
+    if "clips" in p:
+        from engine.sequence import sequence_audit
+        return sequence_audit(p["clips"])
     intervals = keeps(p)
     before, after, removed, partial = [], [], [], []
     for s in p["transcript"]:
@@ -206,7 +216,7 @@ class Store:
         atomic_json(target, p)
         return p
 
-    def create(self, source):
+    def create(self, source, *, clips=None, sort_order=None):
         p = {"schema": SCHEMA, "id": uuid.uuid4().hex, "name": Path(source["path"]).stem,
              "createdAt": time.time(), "updatedAt": time.time(), "source": source, "style": "basic",
              "analyzed": False, "transcript": [], "captions": [], "cuts": [], "scenes": [], "motion": [],
@@ -215,6 +225,9 @@ class Store:
                           "color": "#FFFFFF", "outline": 2,
                           "background": False, "position": "bottom", "resolution": "source", "aspect": "source",
                           "quality": "balanced", "zoom": 1.0, "denoise": True, "normalize": True}}
+        if clips is not None:
+            p.update(clips=clips, sortOrder=sort_order, name=f"{p['name']} 외 {len(clips)-1}개")
+            p["settings"].update(aspect="16:9", resolution="1080", denoise=False, normalize=False)
         return self.save(p)
 
     def list(self):

@@ -1,6 +1,7 @@
 """Check the frozen Python runtime, bundled VAD, ASR imports and real render."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -43,4 +44,10 @@ with tempfile.TemporaryDirectory(prefix="localcut-frozen-") as temporary:
     assert Path(result["project"]["output"]["path"]).is_file()
     log=Path(result["project"]["output"]["path"]).with_name("ffmpeg.log").read_text(encoding="utf-8")
     assert "NanumGothic-Bold.ttf" in log
+    second=root/"second.mp4"
+    shutil.copyfile(source, second)
+    sequence=call("createSequence",sources=[str(source),str(second)])["project"]
+    call("edit",id=sequence["id"],changes={"settings":{"resolution":"720"}})
+    joined=call("render",id=sequence["id"])["project"]
+    assert abs(joined["output"]["duration"]-6)<.1
     print("PASS: frozen runtime, probe, visual analysis, bundled Korean font, styled MP4 output, persistence")

@@ -10,11 +10,16 @@ export interface Settings {
  captionMarginVertical:number;captionMarginLeft:number|null;captionMarginRight:number|null;captionShadow:number;captionWrap:boolean;captionMaxChars:number;
  highlightWords:string;highlightColor:string;
 }
+export interface Clip {
+ id:string;name:string;enabled:boolean;source:Project['source'];captions:Caption[];analyzed:boolean;
+}
+export interface ClipSelection {id:string;enabled:boolean}
 export interface Project {
   id:string;name:string;style:'basic'|'fast'|'shorts';analyzed:boolean;revision:number;sourceUrl:string;outputUrl?:string;preview?:string|null;
-  source:{path:string;duration:number;width:number;height:number;fps:number;aspect:string;hasAudio:boolean;bytes:number};
+  source:{path:string;duration:number;width:number;height:number;fps:number;aspect:string;hasAudio:boolean;bytes:number;capturedAt?:number|null};
   cuts:Cut[];captions:Caption[];transcript:Segment[];scenes:number[];warnings:string[];settings:Settings;
   model:{name:string;device:string}|null;output:{path:string;duration:number;revision:number}|null;
+  clips?:Clip[];sortOrder?:'capture'|'import'|'manual';
 }
 export interface CutSummary {sourceDuration:number;outputDuration:number;removedDuration:number;appliedCount:number;reviewCount:number;intervalCount:number;noCutReason:string;analysisNeedsRefresh:boolean}
 export interface Audit {before:string;after:string;removed:{id:string;text:string;important:boolean}[];partial:{id:string;text:string;retained:number}[];importantRemoved:number;outputDuration:number;cutSummary?:CutSummary}
@@ -28,6 +33,7 @@ export type TranscriptOperation = 'exclude'|'restore';
 export interface CutPreview {
  video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];
 }
+export interface SequenceConnection {video:string;joinAt:number;from:string;to:string}
 export interface LongformSection {
  title:string;start:number;end:number;reason:string;previewTime:number;excerpt:string;retainedSeconds:number;
 }
@@ -39,6 +45,7 @@ export interface LongformResult {draft:LongformDraft;project?:Project;audit?:Aud
 export interface Bridge {
   call(action:string,data?:Record<string,unknown>):Promise<unknown>;
   dropped(file:File):Promise<Project>;
+  droppedFiles(files:File[]):Promise<ProjectResult>;
   onProgress(callback:(progress:Progress)=>void):()=>void;
   onUpdate(callback:(update:Update)=>void):()=>void;
 }

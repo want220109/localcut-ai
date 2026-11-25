@@ -38,7 +38,20 @@ def dispatch(request, progress=lambda percent,message:None):
         p=store.create(probe(request["source"]))
         p["preview"]=compatible_preview(p["source"],store.directory(p["id"]),progress)
         return store.save(p)
+    if action=="createSequence":
+        from engine.sequence import create_sequence
+        p=create_sequence(store, request.get("sources"))
+        return {"project": p, "audit": transcript_audit(p)}
     p=store.load(request["id"])
+    if "clips" in p:
+        if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption", "render"}:
+            from engine.sequence import sequence_action
+            result = sequence_action(store, p, request, progress)
+            if action in {"sequencePreview", "sequenceConnection"}:
+                return result
+            return {"project": result, "audit": transcript_audit(result)}
+        if action not in {"get", "edit", "undo"} or (action == "edit" and set(request["changes"]) - {"settings", "name"}):
+            raise ValueError("여러 원본 작업에서 지원하는 편집을 선택해 주세요.")
     if action=="captionFrame":
         from media.caption_frame import caption_frame
         return caption_frame(p, request["draft"])

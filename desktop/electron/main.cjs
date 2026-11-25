@@ -24,8 +24,10 @@ function mediaUrl(filename) {
 function decorate(result) {
   const p=result.project||result;
   if(p.source) {
-    const preview=p.preview && inside(path.join(dataRoot,'jobs',projectId(p.id)),path.resolve(p.preview)) ? p.preview : p.source.path;
-    p.sourceUrl=mediaUrl(preview);
+    if(!p.clips) {
+      const preview=p.preview && inside(path.join(dataRoot,'jobs',projectId(p.id)),path.resolve(p.preview)) ? p.preview : p.source.path;
+      p.sourceUrl=mediaUrl(preview);
+    }
     if(p.output?.path && inside(path.join(dataRoot,'jobs',projectId(p.id)),path.resolve(p.output.path))) p.outputUrl=mediaUrl(p.output.path);
   }
   return result;
@@ -69,6 +71,12 @@ async function importVideo(filename) {
   if(!validMedia(filename)) throw new Error('MP4, MOV, AVI, MKV 영상만 불러올 수 있습니다.');
   return decorate(await engine({action:'create',source:await fs.realpath(filename)}));
 }
+async function importFiles(files) {
+  if(!Array.isArray(files)||!files.length||files.length>100||!files.every(validMedia)) throw new Error('영상 파일을 1~100개 선택해 주세요.');
+  if(files.length===1) return importVideo(files[0]);
+  const sources=await Promise.all(files.map(filename=>fs.realpath(filename)));
+  return decorate(await engine({action:'createSequence',sources}));
+}
 async function statIfPresent(filename) {
   try {return await fs.stat(filename);}
   catch(error) {if(error.code!=='ENOENT') throw error;return null;}
@@ -78,12 +86,13 @@ function samePath(a,b) {
   return process.platform==='win32' ? a.toLowerCase()===b.toLowerCase() : a===b;
 }
 
-async function copyExport(source,output,chosen,extension) {
+async function copyExport(sources,output,chosen,extension) {
   const hasExtension=chosen.toLowerCase().endsWith(extension);
   const target=hasExtension?chosen:chosen+extension;
-  if(samePath(target,path.resolve(source))) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
-  const [sourceStat,targetStat]=await Promise.all([statIfPresent(source),statIfPresent(target)]);
-  if(sourceStat?.ino && targetStat && sourceStat.dev===targetStat.dev && sourceStat.ino===targetStat.ino) {
+  if(sources.some(source=>samePath(target,path.resolve(source)))) throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
+  const targetStat=await statIfPresent(target);
+  const sourceStats=targetStat ? await Promise.all(sources.map(statIfPresent)) : [];
+  if(sourceStats.some(stat=>stat?.ino && stat.dev===targetStat.dev && stat.ino===targetStat.ino)) {
     throw new Error('원본 영상에는 저장할 수 없습니다. 다른 이름을 선택해 주세요.');
   }
   if(samePath(target,output)) return output;
@@ -121,10 +130,11 @@ async function request(event,message) {
   if(action==='history') return engine({action:'list'},false);
   if(action==='pick') {
     if(busy) throw new Error('현재 작업을 마친 후 영상을 불러와 주세요.');
-    const r=await dialog.showOpenDialog(window,{properties:['openFile'],filters:[{name:'영상',extensions:['mp4','mov','avi','mkv']}]});
-    return r.canceled?null:importVideo(r.filePaths[0]);
+    const r=await dialog.showOpenDialog(window,{properties:['openFile','multiSelections'],filters:[{name:'영상',extensions:['mp4','mov','avi','mkv']}]});
+    return r.canceled?null:importFiles(r.filePaths);
   }
   if(action==='import') return importVideo(message.path);
+  if(action==='importFiles') return importFiles(message.paths);
   if(action==='model') {
     if(!['tiny','small'].includes(message.model)) throw new Error('지원하지 않는 모델입니다.');
     let importDir;
@@ -138,6 +148,29 @@ async function request(event,message) {
   if(action==='updateStatus') return updateController.state;
   if(action==='update') return updateController.action(message.operation,message.channel);
   const id=projectId(message.id);
+  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceCaption','sequenceConnection'].includes(action)) {
+    const {revision,rows,clipId,captionId,model,text}=message;
+    if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
+    if(action==='editSequence') {
+      if(!Array.isArray(rows)||rows.length<2||rows.length>100||
+         rows.some(row=>!row||typeof row.id!=='string'||!/^[a-f0-9]{32}$/.test(row.id)||typeof row.enabled!=='boolean'))
+        throw new Error('클립 순서를 확인해 주세요.');
+      return decorate(await engine({action,id,revision,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));
+    }
+    projectId(clipId);
+    if(action==='sequencePreview') {
+      const result=await engine({action,id,revision,clipId});
+      return {url:mediaUrl(result.path)};
+    }
+    if(action==='sequenceConnection') return engine({action,id,revision,clipId});
+    if(action==='sequenceAnalyze') {
+      if(!['tiny','small'].includes(model)) throw new Error('지원하지 않는 모델입니다.');
+      return decorate(await engine({action,id,revision,clipId,model}));
+    }
+    if(typeof captionId!=='string'||captionId.length>128||typeof text!=='string'||text.length>10000)
+      throw new Error('수정할 자막을 확인해 주세요.');
+    return decorate(await engine({action,id,revision,clipId,captionId,text}));
+  }
   if(action==='captionFrame') {
     if(busy||frameBusy) throw new Error('작업이 끝나면 자막 미리보기를 갱신합니다.');
     const {captionId,text,start,end}=message;
@@ -211,7 +244,8 @@ async function request(event,message) {
         filters:[{name:extension.slice(1).toUpperCase(),extensions:[extension.slice(1)]}]
       });
       if(r.canceled||!r.filePath) return null;
-      const saved=await copyExport(p.source.path,real,path.resolve(r.filePath),extension);
+      const sources=p.clips?p.clips.map(clip=>clip.source.path):[p.source.path];
+      const saved=await copyExport(sources,real,path.resolve(r.filePath),extension);
       savedExports.set(exportKey,saved);
       return saved;
     } finally {busy=false;}
