@@ -115,7 +115,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
     {clip.analyzed&&!clip.captions.length&&<p className="small muted">인식된 음성이 없습니다.</p>}
    </div>
    <div className="sequence-output">
-    <label>가로 출력 해상도<select value={project.settings.resolution} disabled={disabled} onChange={e=>setting('resolution',e.target.value as Settings['resolution'])}>
+    <label>가로 출력 해상도<select aria-label="가로 출력 해상도" value={project.settings.resolution} disabled={disabled} onChange={e=>setting('resolution',e.target.value as Settings['resolution'])}>
      <option value="1080">1080p</option><option value="720">720p</option></select></label>
     <label className="checkbox"><input type="checkbox" disabled={disabled} checked={project.settings.subtitles} onChange={e=>setting('subtitles',e.target.checked)}/> MP4에 자막 넣기</label>
    </div>
