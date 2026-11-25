@@ -323,10 +323,12 @@ async function checkSequenceCuts(app,page,ffmpeg,testRoot){
  assert.equal(await retake.isChecked(),false);
  await row.getByRole('button',{name:'컷 미리보기',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.sequence-ai-cuts video')?.readyState>=1);
- await check.uncheck();
+ await check.click();
  await cuts.getByText(/컷 적용 0개/).waitFor();
- await check.check();
+ assert.equal(await check.isChecked(),false);
+ await check.click();
  await cuts.getByText(/컷 적용 1개/).waitFor();
+ assert.equal(await check.isChecked(),true);
  await page.getByRole('button',{name:'MP4 저장 단계',exact:true}).click();
  const target=path.join(testRoot,'클립 안 편집 결과.mp4');
  await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},target);
