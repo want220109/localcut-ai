@@ -1,5 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {CaptionFramePreview} from './CaptionFramePreview';
+import {SequenceCuts} from './SequenceCuts';
 import {BasicSubtitleControls,SubtitleControls} from './SubtitleControls';
 
 const steps=[
@@ -9,7 +10,7 @@ type Step=typeof steps[number][0];
 const needsCaptions=(clip:Clip)=>!clip.analyzed&&!clip.captions.length;
 const captionStatus=(clip:Clip)=>clip.captions.length?`자막 ${clip.captions.length}줄`:clip.analyzed?'인식된 음성 없음':'자막 생성 전';
 
-import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,Settings} from './types';
+import type {Caption,Clip,ClipSelection,Progress,Project,SequenceConnection,SequenceCutPreview,Settings} from './types';
 
 interface Props {
  project:Project;
@@ -22,6 +23,9 @@ interface Props {
  connection:(clipId:string)=>Promise<SequenceConnection|null>;
  analyze:(clipId:string)=>Promise<void>;
  analyzeAll:()=>Promise<void>;
+ analyzeEdits:()=>Promise<void>;
+ previewCut:(clipId:string,cutId:string)=>Promise<SequenceCutPreview|null>;
+ setCut:(clipId:string,cutId:string,enabled:boolean)=>Promise<void>;
  modelReady:boolean;
  showModels:()=>void;
  saveCaption:(clipId:string,caption:Caption)=>Promise<boolean>;
@@ -34,7 +38,7 @@ interface Props {
 }
 
 export function SequenceEditor({project,disabled,progress,duration,formatTime,edit,preview,connection,
- analyze,analyzeAll,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
+ analyze,analyzeAll,analyzeEdits,previewCut,setCut,modelReady,showModels,saveCaption,changeSettings,render,undo,replace,saveSubtitles,result}:Props) {
  const clips=project.clips!;
  const included=clips.filter(item=>item.enabled);
  const [step,setStep]=useState<Step>(included.some(needsCaptions)?'captions':'edit');
@@ -56,7 +60,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
  const dirty=!!cue&&editedText!==cue.text;
  const pending=included.filter(needsCaptions);
  const readyCount=included.length-pending.length;
- const requiresModel=!modelReady&&pending.some(item=>item.source.hasAudio);
+ const requiresModel=!modelReady&&pending.some(item=>item.source.hasAudio&&!item.speechReady);
  const hasCurrentOutput=project.output?.revision===project.revision;
  const unsavedCount=clips.reduce((count,item)=>count+item.captions.filter(caption=>{
   const draftText=draftTexts[item.id+':'+caption.id];
@@ -132,7 +136,7 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
      caption={draft} paused={disabled} formatTime={formatTime}/>:null;
  const captions=<section ref={captionPanel} className="panel sequence-caption-panel" aria-label="선택한 클립 자막">
   <div className="section-title"><h2>선택한 클립 자막</h2>
-   {needsCaptions(clip)&&<button className="secondary" disabled={disabled||(!modelReady&&clip.source.hasAudio)}
+   {needsCaptions(clip)&&<button className="secondary" disabled={disabled||(!modelReady&&clip.source.hasAudio&&!clip.speechReady)}
     onClick={()=>analyze(clip.id)}>클립 자막 만들기</button>}
   </div>
   <div className="sequence-caption-picker">{clipPicker}</div>
@@ -182,6 +186,10 @@ export function SequenceEditor({project,disabled,progress,duration,formatTime,ed
    </section>
    {captions}
   </>}
+
+  {step==='edit'&&<SequenceCuts clips={included} revision={project.revision} duration={duration}
+   disabled={disabled} modelReady={modelReady} showModels={showModels} formatTime={formatTime}
+   analyze={analyzeEdits} preview={previewCut} setCut={setCut}/>}
 
   {(step==='import'||step==='edit')&&<>
    <section className="panel sequence-panel">

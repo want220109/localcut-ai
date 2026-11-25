@@ -34,8 +34,8 @@ def caption_frame(project, draft, *, clip=None):
     if clip is None:
         intervals = frame_intervals(project)
     else:
-        from engine.sequence import SEQUENCE_FPS, clip_frames
-        intervals = [(0, clip_frames(clip) / SEQUENCE_FPS)]
+        from engine.sequence import clip_intervals, seconds_intervals
+        intervals = seconds_intervals(clip_intervals(clip))
     cues = [cue for cue in remap(captions, intervals, include_ids=True) if cue["id"] == saved["id"]]
 
     midpoint = (start + end) / 2

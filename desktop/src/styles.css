@@ -121,3 +121,13 @@
 .history-row .history-item{flex:1;min-width:0}
 .history-action{flex-shrink:0;min-width:23px;padding:6px}
 .history-hidden-name{flex:1;min-width:0;margin:8px 0 8px 12px;color:#a2aab8;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.sequence-ai-cuts .cut-connection-preview{margin:12px 0 0}
+.sequence-ai-cuts select{width:100%;text-overflow:ellipsis}
+.sequence-cut-list{list-style:none;padding:0;margin:12px 0 0;max-height:330px;overflow:auto;border:1px solid var(--line);border-radius:7px}
+.sequence-cut-list li{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px;border-bottom:1px solid var(--line)}
+.sequence-cut-list li:last-child{border-bottom:0}
+.sequence-cut-list li label{flex:1;min-width:0;align-items:flex-start}
+.sequence-cut-list li strong,.sequence-cut-list li small{display:block}
+.sequence-cut-list li small{margin-top:4px;color:#a3afbf}
+.sequence-cut-list li button{flex-shrink:0}

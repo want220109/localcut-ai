@@ -27,6 +27,8 @@ function decorate(result) {
     if(!p.clips) {
       const preview=p.preview && inside(path.join(dataRoot,'jobs',projectId(p.id)),path.resolve(p.preview)) ? p.preview : p.source.path;
       p.sourceUrl=mediaUrl(preview);
+    } else {
+      p.clips=p.clips.map(({speech,...clip})=>({...clip,speechReady:!!speech}));
     }
     if(p.output?.path && inside(path.join(dataRoot,'jobs',projectId(p.id)),path.resolve(p.output.path))) p.outputUrl=mediaUrl(p.output.path);
   }
@@ -155,8 +157,8 @@ async function request(event,message) {
   if(action==='updateStatus') return updateController.state;
   if(action==='update') return updateController.action(message.operation,message.channel);
   const id=projectId(message.id);
-  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceCaption','sequenceConnection'].includes(action)) {
-    const {revision,rows,clipId,captionId,model,text}=message;
+  if(['editSequence','sequencePreview','sequenceAnalyze','sequenceAnalyzeAll','sequenceAnalyzeEdits','sequenceSetCut','sequenceCutPreview','sequenceCaption','sequenceConnection'].includes(action)) {
+    const {revision,rows,clipId,captionId,model,text,cutId,enabled}=message;
     if(!Number.isSafeInteger(revision)||revision<0) throw new Error('현재 편집 상태를 확인해 주세요.');
     if(action==='editSequence') {
       if(!Array.isArray(rows)||rows.length<2||rows.length>100||
@@ -164,11 +166,17 @@ async function request(event,message) {
         throw new Error('클립 순서를 확인해 주세요.');
       return decorate(await engine({action,id,revision,rows:rows.map(row=>({id:row.id,enabled:row.enabled}))}));
     }
-    if(action==='sequenceAnalyzeAll') {
+    if(action==='sequenceAnalyzeAll'||action==='sequenceAnalyzeEdits') {
       if(!['tiny','small'].includes(model)) throw new Error('지원하지 않는 모델입니다.');
       return decorate(await engine({action,id,revision,model}));
     }
     projectId(clipId);
+    if(action==='sequenceSetCut'||action==='sequenceCutPreview') {
+      if(typeof cutId!=='string'||!cutId||cutId.length>128) throw new Error('편집 구간을 다시 선택해 주세요.');
+      if(action==='sequenceCutPreview') return engine({action,id,revision,clipId,cutId});
+      if(typeof enabled!=='boolean') throw new Error('편집 구간의 적용 상태를 확인해 주세요.');
+      return decorate(await engine({action,id,revision,clipId,cutId,enabled}));
+    }
     if(action==='sequencePreview') {
       const result=await engine({action,id,revision,clipId});
       return {url:mediaUrl(result.path)};

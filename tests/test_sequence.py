@@ -208,3 +208,72 @@ def test_sequence_mp4_video_order_mixed_orientation_audio_and_caption_sync(tmp_p
     assert [row["start"] for row in report["timeline"]] == [0, 1]
     assert report["revision"] == edited["project"]["revision"]
     assert [hashlib.sha256(path.read_bytes()).hexdigest() for path in files] == digests
+
+
+@pytest.mark.integration
+def test_sequence_ai_cuts_preview_toggle_and_export(tmp_path, files, monkeypatch):
+    source = tmp_path / "중간에 긴 침묵이 있는 원본.mp4"
+    subprocess.run([binary("ffmpeg"), "-v", "error",
+                    "-f", "lavfi", "-i", "color=red:s=320x180:r=25:d=10",
+                    "-f", "lavfi", "-i", "sine=f=440:r=48000:d=10",
+                    "-af", "volume=0:enable='between(t,2.8,6.35)'",
+                    "-c:v", "libx264", "-threads", "2", "-pix_fmt", "yuv420p", "-c:a", "aac", str(source)],
+                   check=True)
+    original = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    def call(action, **fields):
+        return dispatch({"root": str(tmp_path), "action": action, **fields})
+
+    project = call("createSequence", sources=[str(source), str(files[1])])["project"]
+    project["settings"]["resolution"] = "720"
+    left, right = project["clips"]
+    transcript = [
+        {"id": "s0", "start": .6, "end": 2.7, "text": "오늘 먹은 메뉴를 소개합니다", "confidence": .95},
+        {"id": "s1", "start": 6.45, "end": 8.45, "text": "오늘 먹은 메뉴를 소개합니다", "confidence": .96},
+    ]
+    left.update(analyzed=True, speech={"transcript": transcript, "vad": [[.55, 2.75], [6.4, 8.5]]},
+                captions=[{"id": "c0", "start": .6, "end": 2.7, "text": "오늘의 메뉴입니다", "textEdited": True},
+                          {"id": "c1", "start": 6.45, "end": 8.45, "text": "이제 메뉴를 보여드려요", "textEdited": True}])
+    right["captions"] = [{"id": "c0", "start": .2, "end": .8, "text": "두 번째 클립"}]
+    Store(tmp_path).save(project)
+    key = {"id": project["id"], "clipId": left["id"]}
+
+    def unexpected_model(*args, **kwargs):
+        pytest.fail("Saved ASR should be reused for edit analysis")
+
+    monkeypatch.setattr("models.manager.ready", unexpected_model)
+    analyzed = call("sequenceAnalyzeEdits", id=key["id"], revision=0, model="small")
+    assert not analyzed["editFailures"]
+    clips = analyzed["project"]["clips"]
+    assert clips[0]["captions"] == left["captions"] and clips[0]["speech"]["transcript"] == transcript
+    assert clips[1]["cuts"] == [] and "오디오가 없어" in clips[1]["cutNote"]
+    silence = next(cut for cut in clips[0]["cuts"] if cut["kind"] == "silence" and cut["enabled"])
+    retake = next(cut for cut in clips[0]["cuts"] if cut["kind"] == "retake")
+    assert retake["review"] and not retake["enabled"]
+    assert 8 < analyzed["audit"]["outputDuration"] < 9
+    revision = analyzed["project"]["revision"]
+
+    preview = call("sequenceCutPreview", **key, revision=revision, cutId=silence["id"])
+    preview_path = tmp_path / "편집점 미리보기.mp4"
+    preview_path.write_bytes(base64.b64decode(preview["video"]))
+    assert 2.8 < preview["joinAt"] <= 3 and 5.8 < probe(preview_path)["duration"] < 6.15
+    assert Store(tmp_path).load(key["id"])["revision"] == revision
+    with pytest.raises(ValueError, match="다시 선택"):
+        call("sequenceSetCut", **key, revision=revision - 1, cutId=silence["id"], enabled=False)
+
+    output = call("render", id=key["id"])["project"]["output"]
+    assert probe(output["path"])["duration"] == pytest.approx(analyzed["audit"]["outputDuration"], abs=.08)
+    assert probe(output["path"])["hasAudio"]
+    report = json.loads(Path(output["report"]).read_text(encoding="utf-8"))
+    captions = Path(output["srt"]).read_text(encoding="utf-8-sig")
+    assert all(text in captions for text in ("오늘의 메뉴입니다", "이제 메뉴를 보여드려요", "두 번째 클립"))
+    assert 6.5 < report["timeline"][1]["start"] < 7.5
+    assert "00:00:06,450" not in captions
+
+    restored = call("sequenceSetCut", **key, revision=revision, cutId=silence["id"], enabled=False)
+    original_length = (clip_frames(left) + clip_frames(right)) / 30
+    assert restored["audit"]["outputDuration"] == original_length
+    assert restored["project"]["output"]["revision"] != restored["project"]["revision"]
+    retry = call("sequenceAnalyzeEdits", id=key["id"], revision=restored["project"]["revision"], model="small")
+    assert retry["audit"]["outputDuration"] == original_length
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == original

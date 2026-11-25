@@ -285,6 +285,58 @@ async function checkSequenceCaptions(app,page,clips){
  assert.equal(saved.project.clips[1].captions[0].text,'세로 클립의 자막입니다');
  console.log('Sequence caption list, original seek, live still, unsaved text across clips and caption save passed');
 }
+async function checkSequenceCuts(app,page,ffmpeg,testRoot){
+ const source=path.join(testRoot,'클립 안 편집 테스트.mp4');
+ const created=spawnSync(ffmpeg,[
+  '-v','error','-y','-f','lavfi','-i','color=red:s=320x180:r=25:d=10','-f','lavfi','-i','sine=f=440:r=48000:d=10',
+  '-af',"volume=0:enable='between(t,2.8,6.35)'",'-c:v','libx264','-threads','2','-pix_fmt','yuv420p','-c:a','aac',source
+ ],{encoding:'utf8'});
+ if(created.status!==0)throw new Error(created.stderr);
+ const second=path.join(testRoot,'여행-도착.mp4');
+ const project=await page.evaluate(files=>window.localcut.call('importFiles',{paths:files}),[source,second]);
+ const {id}=project.project;
+ const data=await app.evaluate(({app})=>app.getPath('userData'));
+ const filename=path.join(data,'workspace','jobs',id,'project.json');
+ const fixture=JSON.parse(await fs.readFile(filename,'utf8'),(key,value,context)=>key==='mtimeNs'?JSON.rawJSON(context.source):value);
+ fixture.settings.resolution='720';
+ fixture.clips[0].speech={
+  transcript:[
+   {id:'s0',start:.6,end:2.7,text:'오늘 먹은 메뉴를 소개합니다',confidence:.95},
+   {id:'s1',start:6.45,end:8.45,text:'오늘 먹은 메뉴를 소개합니다',confidence:.96},
+  ],vad:[[.55,2.75],[6.4,8.5]],
+ };
+ fixture.clips[0].captions=[
+  {id:'c0',start:.6,end:2.7,text:'교정한 첫 대화',textEdited:true},
+  {id:'c1',start:6.45,end:8.45,text:'다음 대화입니다'},
+ ];
+ fixture.clips.forEach(clip=>{clip.analyzed=true;});
+ await fs.writeFile(filename,JSON.stringify(fixture),'utf8');
+ await page.reload();
+ await page.locator('.history-item').filter({hasText:'클립 안 편집 테스트 외 1개'}).click();
+ const cuts=page.getByRole('region',{name:'클립 안에서 AI 편집',exact:true});
+ await cuts.getByRole('button',{name:'AI 편집점 찾기',exact:true}).click();
+ await cuts.getByText(/분석 2\/2개 · 컷 적용 1개/).waitFor();
+ const row=cuts.locator('.sequence-cut-list li').filter({hasText:'긴 침묵'});
+ const check=row.getByRole('checkbox');
+ assert.equal(await check.isChecked(),true);
+ const retake=cuts.locator('.sequence-cut-list li').filter({hasText:'반복 발화'}).getByRole('checkbox');
+ assert.equal(await retake.isChecked(),false);
+ await row.getByRole('button',{name:'컷 미리보기',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.sequence-ai-cuts video')?.readyState>=1);
+ await check.uncheck();
+ await cuts.getByText(/컷 적용 0개/).waitFor();
+ await check.check();
+ await cuts.getByText(/컷 적용 1개/).waitFor();
+ await page.getByRole('button',{name:'MP4 저장 단계',exact:true}).click();
+ const target=path.join(testRoot,'클립 안 편집 결과.mp4');
+ await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},target);
+ await page.getByRole('button',{name:'MP4 저장',exact:true}).click();
+ await page.locator('.export-feedback.saved').getByText(target,{exact:true}).waitFor({timeout:60000});
+ const result=await page.evaluate(projectId=>window.localcut.call('get',{id:projectId}),id);
+ assert.ok(result.project.output.duration>8.5&&result.project.output.duration<9.5,'A real rendered cut must shorten the merged video');
+ assert.equal(result.project.clips[0].captions[0].text,'교정한 첫 대화');
+ console.log('Multi-video AI cut suggestion, automatic trim, local preview, restore, and shortened MP4 passed');
+}
 async function checkRecentHistory(page){
  const work='여행-도착 외 2개';
  const recent=page.getByRole('region',{name:'최근 작업 목록',exact:true});
@@ -483,8 +535,9 @@ async function main(){
   await checkLongform(app,reopened,sample,testRoot);
   await checkSequence(app,reopened,ffmpeg,testRoot);
   await checkRecentHistory(reopened);
+  await checkSequenceCuts(app,reopened,ffmpeg,testRoot);
   assert.deepEqual(errors,[],'The reopened editor must not throw renderer errors');
-  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,sequenceCaptionsPassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
+  await fs.writeFile(path.join(testRoot,'result.json'),JSON.stringify({passed:true,fiveSecondSeekPassed:true,restartPassed:true,subtitlePresetsPassed:true,longformPassed:true,transcriptEditPassed:true,sequencePassed:true,sequenceCaptionsPassed:true,sequenceCutsPassed:true,recentHistoryPassed:true,latestExportPassed:true,exportLockPassed:true,originalPreserved:true,health,media,projectId:p.id,cutOutput:result.project.output,output:latest.project.output,subtitleSettings:saved.project.settings,rendererErrors:errors},null,2));
   console.log('PASS: real Electron import, local playback, analysis (no audio), manual cut, MP4 render, command, full restart and persistence');
  } catch(error){
   console.error(error);

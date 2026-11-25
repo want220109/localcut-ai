@@ -1,7 +1,8 @@
+from math import ceil, floor
 from pathlib import Path
 from uuid import uuid4
 
-from engine.project import ID_RE, finite, validate_items
+from engine.project import ID_RE, finite, merged_ranges, validate_items
 from engine.transcript_edit import require_revision
 from media.tools import probe, verify_source
 
@@ -10,8 +11,32 @@ MAX_CLIPS = 100
 SEQUENCE_FPS = 30
 
 
+def clip_intervals(clip):
+    """Kept ranges in output frames, expressed in each clip's source timeline."""
+    duration = clip["source"]["duration"]
+    total_frames = max(1, round(duration * SEQUENCE_FPS))
+    kept, cursor = [], 0
+    for a, b in merged_ranges(clip.get("cuts", []), duration):
+        start = min(total_frames, ceil(a * SEQUENCE_FPS - 1e-6))
+        end = min(total_frames, floor(b * SEQUENCE_FPS + 1e-6))
+        if b >= duration:
+            end = total_frames
+        if end <= start:
+            continue
+        if start > cursor:
+            kept.append((cursor, start))
+        cursor = end
+    if cursor < total_frames:
+        kept.append((cursor, total_frames))
+    return kept
+
+
 def clip_frames(clip):
-    return max(1, round(clip["source"]["duration"] * SEQUENCE_FPS))
+    return sum(end - start for start, end in clip_intervals(clip))
+
+
+def seconds_intervals(frames):
+    return [(start / SEQUENCE_FPS, end / SEQUENCE_FPS) for start, end in frames]
 
 
 def validate_clips(clips):
@@ -22,7 +47,11 @@ def validate_clips(clips):
         if not ID_RE.fullmatch(clip["id"]) or clip["id"] in identifiers or type(clip["enabled"]) is not bool:
             raise ValueError("클립을 식별할 수 없습니다.")
         identifiers.add(clip["id"])
-        validate_items(clip["captions"], finite(clip["source"]["duration"], .001))
+        duration = finite(clip["source"]["duration"], .001)
+        validate_items(clip["captions"], duration)
+        validate_items(clip.get("cuts", []), duration, cuts=True)
+        if not clip_frames(clip):
+            raise ValueError("클립 전체를 삭제할 수 없습니다.")
     if not any(clip["enabled"] for clip in clips):
         raise ValueError("영상을 한 개 이상 포함해 주세요.")
 
@@ -49,7 +78,9 @@ def create_sequence(store, paths):
 def sequence_audit(clips):
     length = sum(clip_frames(clip) for clip in clips if clip["enabled"]) / SEQUENCE_FPS
     before = (cue["text"] for clip in clips for cue in clip["captions"])
-    after = (cue["text"] for clip in clips if clip["enabled"] for cue in clip["captions"])
+    from subtitles.captions import remap
+    after = (cue["text"] for clip in clips if clip["enabled"]
+             for cue in remap(clip["captions"], seconds_intervals(clip_intervals(clip))))
     return {"before": "\n".join(before), "after": "\n".join(after), "outputDuration": length,
             "removed": [], "partial": [], "importantRemoved": 0}
 
@@ -80,29 +111,30 @@ def check_model(store, model):
         raise ValueError("모델 · 업데이트에서 한국어 음성 모델을 먼저 설치해 주세요.")
 
 
+def recognize_clip(store, project, clip, model, progress):
+    from engine.analysis import transcribe
+    transcript, vad, result = transcribe(
+        clip["source"], store.root, model, store.directory(project["id"]), progress, model_verified=True,
+    )
+    clip.update(speech={"transcript": transcript, "vad": vad}, model=result)
+    return transcript
+
+
 def analyze_clip(store, project, clip, model, progress, *, model_checked=False):
     source = clip["source"]
     verify_source(source)
     if source["hasAudio"]:
-        from engine.analysis import transcribe
         from subtitles.captions import generate
-        if not model_checked:
-            check_model(store, model)
-        transcript, _, result = transcribe(
-            source, store.root, model, store.directory(project["id"]), progress, model_verified=True,
-        )
+        if "speech" not in clip:
+            if not model_checked:
+                check_model(store, model)
+            recognize_clip(store, project, clip, model, progress)
+        transcript = clip["speech"]["transcript"]
         clip["captions"] = generate(transcript, "basic", project["settings"])
-        clip["model"] = result
     clip["analyzed"] = True
 
 
-def analyze_sequence(store, project, request, progress):
-    require_revision(project, request.get("revision"))
-    pending = [clip for clip in project["clips"] if clip["enabled"] and needs_captions(clip)]
-    model = request["model"]
-    if any(clip["source"]["hasAudio"] for clip in pending):
-        progress(0, "한국어 음성 모델 확인 중")
-        check_model(store, model)
+def process_clips(store, project, pending, progress, work, success_message):
     completed, failures = 0, []
     for index, clip in enumerate(pending, 1):
         def report(percent, message):
@@ -110,15 +142,71 @@ def analyze_sequence(store, project, request, progress):
                      f"클립 {index}/{len(pending)} · {clip['name']} · {message}")
         report(0, "영상 확인 중")
         try:
-            analyze_clip(store, project, clip, model, report, model_checked=True)
+            updated = dict(clip)
+            work(updated, report)
         except (ValueError, RuntimeError, OSError) as error:
             failures.append(f"{clip['name']} · {error}")
             continue
+        clip.update(updated)
         project["revision"] += 1
         store.save(project, snapshot=completed == 0)
         completed += 1
-        report(100, "자막 처리 완료")
+        report(100, success_message)
     return project, failures
+
+
+def analyze_sequence(store, project, request, progress):
+    require_revision(project, request.get("revision"))
+    pending = [clip for clip in project["clips"] if clip["enabled"] and needs_captions(clip)]
+    model = request["model"]
+    if any(clip["source"]["hasAudio"] and "speech" not in clip for clip in pending):
+        progress(0, "한국어 음성 모델 확인 중")
+        check_model(store, model)
+    def work(clip, report):
+        analyze_clip(store, project, clip, model, report, model_checked=True)
+    return process_clips(store, project, pending, progress, work, "자막 처리 완료")
+
+
+def analyze_sequence_edits(store, project, request, progress):
+    from engine.analysis import silence_ranges, visual_analysis
+    from engine.longform import intersects, occupied
+    from engine.planner import plan
+
+    require_revision(project, request.get("revision"))
+    pending = [clip for clip in project["clips"] if clip["enabled"] and "cuts" not in clip]
+    model = request["model"]
+    if any(clip["source"]["hasAudio"] and "speech" not in clip for clip in pending):
+        progress(0, "한국어 음성 모델 확인 중")
+        check_model(store, model)
+
+    def work(clip, report):
+        source = clip["source"]
+        verify_source(source)
+        if source["hasAudio"] and "speech" not in clip:
+            recognize_clip(store, project, clip, model, report)
+        speech = clip.get("speech", {})
+        # The planner annotates its input, so the cached ASR stays independent.
+        transcript = [dict(item) for item in speech.get("transcript", [])]
+        diagnostics = {}
+        silences, scenes, motion = [], [], []
+        if transcript:
+            duration = source["duration"]
+            scenes, motion = visual_analysis(source["path"], duration,
+                                             lambda p, msg: report(79 + p * .35, msg))
+            report(92, "긴 침묵과 대화 구간 비교 중")
+            silences = silence_ranges(source["path"], duration)
+        cuts, _ = plan(source, transcript, silences, scenes, motion, speech.get("vad", []), "basic", diagnostics)
+        protected = occupied([*transcript, *clip["captions"]], source["duration"])
+        for cut in cuts:
+            if cut["kind"] != "silence":
+                cut.update(enabled=False, review=True)
+                continue
+            # Keep corrected subtitles and whole utterances protected in the automatic pass.
+            if cut["enabled"] and intersects(protected, cut["start"], cut["end"]):
+                cut.update(enabled=False, review=True, reason="자막 또는 발화 시간과 겹치는 구간 · 검토 후 적용")
+        clip.update(cuts=cuts, cutNote=diagnostics.get("noCutReason", "") if not cuts else "")
+
+    return process_clips(store, project, pending, progress, work, "AI 편집점 분석 완료")
 
 
 def sequence_action(store, project, request, progress):
@@ -137,6 +225,17 @@ def sequence_action(store, project, request, progress):
         clip = next((clip for clip in project["clips"] if clip["id"] == request.get("clipId")), None)
         if clip is None:
             raise ValueError("클립을 다시 선택해 주세요.")
+        if action == "sequenceCutPreview":
+            from media.sequence import sequence_cut_preview
+            return sequence_cut_preview(project, clip, request.get("cutId"), progress)
+        if action == "sequenceSetCut":
+            chosen = next((cut for cut in clip.get("cuts", []) if cut["id"] == request.get("cutId")), None)
+            enabled = request.get("enabled")
+            if chosen is None or type(enabled) is not bool:
+                raise ValueError("편집 구간을 다시 선택해 주세요.")
+            if chosen["enabled"] == enabled:
+                return project
+            chosen["enabled"] = enabled
         if action == "sequenceConnection":
             from media.sequence import sequence_connection
             included = [item for item in project["clips"] if item["enabled"]]

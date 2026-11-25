@@ -11,7 +11,7 @@ export interface Settings {
  highlightWords:string;highlightColor:string;
 }
 export interface Clip {
- id:string;name:string;enabled:boolean;source:Project['source'];captions:Caption[];analyzed:boolean;
+ id:string;name:string;enabled:boolean;source:Project['source'];captions:Caption[];analyzed:boolean;speechReady?:boolean;cuts?:Cut[];cutNote?:string;
 }
 export interface ClipSelection {id:string;enabled:boolean}
 export interface Project {
@@ -29,8 +29,9 @@ export interface History {id:string;name:string;updatedAt:number;analyzed:boolea
 export interface HistoryLists {recent:History[];hidden:History[]}
 export interface Progress {percent:number;message:string}
 export interface Update {status:string;message:string;channel:string;version?:string;notes?:string;percent?:number}
-export interface ProjectResult {project:Project;audit:Audit;message?:string;captionFailures?:string[]}
+export interface ProjectResult {project:Project;audit:Audit;message?:string;captionFailures?:string[];editFailures?:string[]}
 export type TranscriptOperation = 'exclude'|'restore';
+export interface SequenceCutPreview {video:string;joinAt:number}
 export interface CutPreview {
  video:string;joinAt:number;cutStart:number;cutEnd:number;before:[number,number];after:[number,number];
 }

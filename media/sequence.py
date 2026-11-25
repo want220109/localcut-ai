@@ -5,9 +5,9 @@ from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from engine.project import atomic_json
-from engine.sequence import SEQUENCE_FPS, clip_frames, sequence_audit
+from engine.sequence import SEQUENCE_FPS, clip_intervals, seconds_intervals, sequence_audit
 from media.render import dimensions, subtitle_filter, write_ass
-from media.tools import binary, probe, run
+from media.tools import binary, probe, run, verify_source
 from subtitles.captions import remap, srt
 
 
@@ -56,36 +56,86 @@ def join_clips(directory, names, audio, destination):
     run(args, cwd=directory)
 
 
-def sequence_connection(project, left, right, progress):
+def frame_count(spans):
+    return sum(end - start for start, end in spans)
+
+
+def edge_intervals(spans, *, tail=False):
+    remaining = 3 * SEQUENCE_FPS
+    excerpt = []
+    for start, end in reversed(spans) if tail else spans:
+        length = min(end - start, remaining)
+        excerpt.append((end - length, end) if tail else (start, start + length))
+        remaining -= length
+        if not remaining:
+            break
+    return list(reversed(excerpt)) if tail else excerpt
+
+
+def encode_intervals(clip, spans, settings, width, height, audio, directory, names, *, preview=False):
+    captions = remap(clip["captions"], seconds_intervals(spans))
+    elapsed = 0
+    for start, end in spans:
+        offset, limit = elapsed / SEQUENCE_FPS, (elapsed + end - start) / SEQUENCE_FPS
+        local = [{**cue, "start": max(offset, cue["start"]) - offset, "end": min(limit, cue["end"]) - offset}
+                 for cue in captions if cue["start"] < limit and cue["end"] > offset]
+        name = f"part-{len(names):04}.mov"
+        work = directory / f"part-{len(names):04}"
+        work.mkdir()
+        encode_clip(clip, end - start, settings, width, height, audio, directory / name, work,
+                    local, start=start, preview=preview)
+        names.append(name)
+        elapsed += end - start
+    return captions
+
+
+def preview_excerpts(project, excerpts, progress):
     width, height = dimensions(project)
     scale = min(1, 640 / max(width, height))
     width, height = max(2, round(width * scale / 2) * 2), max(2, round(height * scale / 2) * 2)
-    audio = left["source"]["hasAudio"] or right["source"]["hasAudio"]
-    before, after = (min(3 * SEQUENCE_FPS, clip_frames(clip)) for clip in (left, right))
-    start = clip_frames(left) - before
+    audio = any(clip["source"]["hasAudio"] for clip, _ in excerpts)
     with TemporaryDirectory(prefix="localcut-connection-") as temporary:
         directory = Path(temporary)
         names = []
-        for index, (clip, frames, offset) in enumerate(((left, before, start), (right, after, 0))):
-            progress(index * 45, "클립 연결부 준비 중")
-            name = f"clip-{index}.mov"
-            names.append(name)
-            work = directory / str(index)
-            work.mkdir()
-            captions = remap(clip["captions"], [(offset / SEQUENCE_FPS, (offset+frames) / SEQUENCE_FPS)])
-            encode_clip(clip, frames, project["settings"], width, height, audio, directory / name, work,
-                        captions, start=offset, preview=True)
+        for index, (clip, spans) in enumerate(excerpts):
+            if spans:
+                progress(index * 45, "편집 연결부 준비 중")
+                encode_intervals(clip, spans, project["settings"], width, height, audio, directory, names, preview=True)
         output = directory / "connection.mp4"
         join_clips(directory, names, audio, output)
         if output.stat().st_size > 2 * 1024**2:
             raise RuntimeError("연결부 미리보기 파일이 너무 큽니다.")
-        video = b64encode(output.read_bytes()).decode("ascii")
-    return {"video": video, "joinAt": before / SEQUENCE_FPS, "from": left["name"], "to": right["name"]}
+        return b64encode(output.read_bytes()).decode("ascii")
 
+
+def sequence_connection(project, left, right, progress):
+    before = edge_intervals(clip_intervals(left), tail=True)
+    after = edge_intervals(clip_intervals(right))
+    video = preview_excerpts(project, [(left, before), (right, after)], progress)
+    return {"video": video, "joinAt": frame_count(before) / SEQUENCE_FPS,
+            "from": left["name"], "to": right["name"]}
+
+
+def sequence_cut_preview(project, clip, cut_id, progress):
+    cut = next((item for item in clip.get("cuts", []) if item["id"] == cut_id), None)
+    if cut is None:
+        raise ValueError("미리 볼 편집 구간을 다시 선택해 주세요.")
+    verify_source(clip["source"])
+    proposed = {**clip, "cuts": [dict(item, enabled=True) if item is cut else item for item in clip["cuts"]]}
+    spans = clip_intervals(proposed)
+    if not spans:
+        raise ValueError("클립 전체를 삭제할 수 없습니다.")
+    midpoint = (cut["start"] + cut["end"]) * SEQUENCE_FPS / 2
+    before = edge_intervals([span for span in spans if span[1] <= midpoint], tail=True)
+    after = edge_intervals([span for span in spans if span[0] >= midpoint])
+    if not before and not after:
+        raise ValueError("미리 볼 만큼 긴 편집 구간이 없습니다.")
+    video = preview_excerpts(project, [(clip, before + after)], progress)
+    return {"video": video, "joinAt": frame_count(before) / SEQUENCE_FPS}
 
 def render_sequence(project, directory, progress):
-    clips = [(clip, clip_frames(clip)) for clip in project["clips"] if clip["enabled"]]
-    total = sum(frames for _, frames in clips)
+    clips = [(clip, clip_intervals(clip)) for clip in project["clips"] if clip["enabled"]]
+    total = sum(frame_count(spans) for _, spans in clips)
     audio = any(clip["source"]["hasAudio"] for clip, _ in clips)
     width, height = dimensions(project)
     if disk_usage(directory).free < max(100 * 1024**2, total / SEQUENCE_FPS * width * height * .21):
@@ -99,17 +149,12 @@ def render_sequence(project, directory, progress):
         with TemporaryDirectory(prefix="segments-", dir=output) as temporary:
             segments = Path(temporary)
             records = []
-            for index, (clip, frames) in enumerate(clips):
+            for index, (clip, spans) in enumerate(clips):
                 progress(2 + 89 * completed / total, f"클립 인코딩 중 ({index+1}/{len(clips)})")
-                name = f"clip-{index:03}.mov"
-                work = segments / str(index)
-                work.mkdir()
-                local = remap(clip["captions"], [(0, frames / SEQUENCE_FPS)])
-                encode_clip(clip, frames, settings, width, height, audio, segments / name, work, local)
-                records.append(name)
+                local = encode_intervals(clip, spans, settings, width, height, audio, segments, records)
                 offset = completed / SEQUENCE_FPS
                 captions.extend(dict(cue, start=cue["start"]+offset, end=cue["end"]+offset) for cue in local)
-                completed += frames
+                completed += frame_count(spans)
                 timeline.append({"id": clip["id"], "name": clip["name"], "start": offset,
                                  "end": completed / SEQUENCE_FPS})
             progress(94, "클립과 오디오 연결 중")

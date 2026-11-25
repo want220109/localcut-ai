@@ -62,10 +62,15 @@ def dispatch(request, progress=lambda percent,message:None):
             from engine.sequence import analyze_sequence
             p, failures = analyze_sequence(store, p, request, progress)
             return {"project": p, "audit": transcript_audit(p), "captionFailures": failures}
-        if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption", "render"}:
+        if action == "sequenceAnalyzeEdits":
+            from engine.sequence import analyze_sequence_edits
+            p, failures = analyze_sequence_edits(store, p, request, progress)
+            return {"project": p, "audit": transcript_audit(p), "editFailures": failures}
+        if action in {"editSequence", "sequencePreview", "sequenceConnection", "sequenceAnalyze", "sequenceCaption",
+                      "sequenceCutPreview", "sequenceSetCut", "render"}:
             from engine.sequence import sequence_action
             result = sequence_action(store, p, request, progress)
-            if action in {"sequencePreview", "sequenceConnection"}:
+            if action in {"sequencePreview", "sequenceConnection", "sequenceCutPreview"}:
                 return result
             return {"project": result, "audit": transcript_audit(result)}
         if action not in {"get", "edit", "undo"} or (action == "edit" and set(request["changes"]) - {"settings", "name"}):

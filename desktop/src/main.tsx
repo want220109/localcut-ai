@@ -1,6 +1,6 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,Settings,TranscriptOperation,Update} from './types';
+import type {Audit,Caption,ClipSelection,Cut,CutPreview,Health,HistoryLists,LongformDraft,LongformResult,Progress,Project,ProjectResult,SequenceConnection,SequenceCutPreview,Settings,TranscriptOperation,Update} from './types';
 import './styles.css';
 import {BasicSubtitleControls,SubtitleControls} from './SubtitleControls';
 import {EditSummary} from './EditSummary';
@@ -76,19 +76,20 @@ function App(){
   await task(async()=>{
    const result=await call<ProjectResult>(action,{id:project.id,revision:project.revision,...fields});
    accept(result);
-   if(result.captionFailures?.length){
-    const first=result.captionFailures[0];
-    setError(`자막을 생성하지 못한 영상 ${result.captionFailures.length}개 · ${first}`);
+   const failures=result.captionFailures??result.editFailures;
+   if(failures?.length){
+    const operation=result.editFailures?'편집점을 찾지 못한':'자막을 생성하지 못한';
+    setError(`${operation} 영상 ${failures.length}개 · ${failures[0]}`);
    }
    saved=true;
   });
   return saved;
  }
- async function sequenceMedia<T>(action:string,clipId:string):Promise<T|null>{
+ async function sequenceMedia<T>(action:string,clipId:string,cutId?:string):Promise<T|null>{
   if(!project||busy)return null;
   outputVideo.current?.pause();
   let result:T|null=null;
-  await task(async()=>{result=await call<T>(action,{id:project.id,revision:project.revision,clipId});});
+  await task(async()=>{result=await call<T>(action,{id:project.id,revision:project.revision,clipId,cutId});});
   return result;
  }
  async function editTranscript(operation:TranscriptOperation,lineIds:string[]){
@@ -231,6 +232,9 @@ function App(){
       preview={async id=>(await sequenceMedia<{url:string}>('sequencePreview',id))?.url??null}
       connection={id=>sequenceMedia<SequenceConnection>('sequenceConnection',id)}
       analyzeAll={async()=>{await changeSequence('sequenceAnalyzeAll',{model});}}
+      analyzeEdits={async()=>{await changeSequence('sequenceAnalyzeEdits',{model});}}
+      previewCut={(clipId,cutId)=>sequenceMedia<SequenceCutPreview>('sequenceCutPreview',clipId,cutId)}
+      setCut={async(clipId,cutId,enabled)=>{await changeSequence('sequenceSetCut',{clipId,cutId,enabled});}}
       modelReady={!!selectedModel?.ready} showModels={()=>{setSettingsOpen(true);window.scrollTo(0,0);}}
       analyze={async clipId=>{await changeSequence('sequenceAnalyze',{clipId,model});}}
       saveCaption={(clipId,caption)=>changeSequence('sequenceCaption',{clipId,captionId:caption.id,text:caption.text})}
